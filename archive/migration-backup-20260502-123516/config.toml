@@ -1,0 +1,780 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+###############################################################################
+# Codex CLI configuration
+# Exhaustive, grouped, and updated against the current Codex docs/reference.
+###############################################################################
+
+# ---------------------------------------------------------------------------
+# Core model selection
+# Root keys must appear before TOML tables.
+# ---------------------------------------------------------------------------
+
+model = "gpt-5.5"                     # Primary model Codex uses for normal sessions.
+model_reasoning_effort = "high"       # Default reasoning depth: none | minimal | low | medium | high | xhigh.
+personality = "pragmatic"             # Communication style for supported models: none | friendly | pragmatic.
+approval_policy = "on-request"        # Let Codex decide when to ask before running commands.
+approvals_reviewer = "user"           # Send approval prompts to you instead of the guardian reviewer subagent.
+sandbox_mode = "workspace-write"      # Keep writes sandboxed to the workspace while still allowing normal editing.
+allow_login_shell = true              # Allow shell tools to request login-shell behavior so your profile can load.
+
+# review_model = "gpt-5.4"            # Optional dedicated model for `/review`; defaults to the active session model.
+# model_provider = "openai"           # Provider id from `[model_providers]`; defaults to the built-in OpenAI provider.
+# oss_provider = "ollama"             # Default local OSS provider for `--oss`: `ollama` or `lmstudio`.
+# service_tier = "flex"               # Preferred service tier for new turns: `fast` or `flex`.
+# model_context_window = 128000       # Manual context window override in tokens for the selected model.
+# model_auto_compact_token_limit = 64000 # Trigger automatic history compaction at this token threshold.
+# tool_output_token_limit = 12000     # Limit how many tokens of each tool output are retained in context.
+# model_catalog_json = "/Users/djh/.codex/models.json" # Startup-only override for the model catalog file.
+# background_terminal_max_timeout = 300000 # Maximum empty poll window for background terminal sessions in ms.
+# log_dir = "/Users/djh/.codex/log"   # Override where Codex writes local log files.
+# sqlite_home = "/Users/djh/.codex"   # Override where Codex stores its SQLite-backed runtime state.
+
+# ---------------------------------------------------------------------------
+# Reasoning and verbosity
+# ---------------------------------------------------------------------------
+
+# plan_mode_reasoning_effort = "high" # Use a different reasoning level while Plan mode is active.
+# model_reasoning_summary = "auto"    # Request reasoning summaries: auto | concise | detailed | none.
+# model_verbosity = "medium"          # GPT-5 text verbosity hint: low | medium | high.
+# model_supports_reasoning_summaries = true # Force-enable reasoning summaries for compatible providers.
+
+# ---------------------------------------------------------------------------
+# Instruction overrides
+# ---------------------------------------------------------------------------
+
+# developer_instructions = ""         # Inject extra developer instructions before AGENTS.md on every turn.
+# compact_prompt = ""                 # Inline override for the history compaction prompt text.
+# commit_attribution = ""             # Override the auto-added git co-author trailer; empty string disables it.
+# model_instructions_file = "/Users/djh/.codex/instructions.txt" # Replace Codex's built-in instruction file.
+# experimental_compact_prompt_file = "/Users/djh/.codex/compact_prompt.txt" # Load the compaction prompt from a file.
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+# notify = ["terminal-notifier", "-title", "Codex", "-message"] # Run an external notifier command with a JSON payload.
+
+# ---------------------------------------------------------------------------
+# Authentication and login
+# ---------------------------------------------------------------------------
+
+# cli_auth_credentials_store = "auto" # Where Codex stores login credentials: file | keyring | auto | ephemeral.
+# chatgpt_base_url = "https://chatgpt.com/backend-api/" # Base URL for ChatGPT auth flow, not the OpenAI API.
+# openai_base_url = "https://us.api.openai.com/v1" # Optional base URL override for the built-in OpenAI provider.
+# forced_chatgpt_workspace_id = "00000000-0000-0000-0000-000000000000" # Restrict ChatGPT login to one workspace.
+# forced_login_method = "chatgpt"    # Restrict login method: `chatgpt` or `api`.
+# mcp_oauth_credentials_store = "auto" # Preferred store for MCP OAuth credentials: auto | file | keyring.
+# mcp_oauth_callback_port = 4321      # Fixed local port for MCP OAuth callbacks.
+# mcp_oauth_callback_url = "https://devbox.example.internal/callback" # Override redirect URI used during MCP OAuth.
+
+# ---------------------------------------------------------------------------
+# Project documentation controls
+# ---------------------------------------------------------------------------
+
+# project_doc_max_bytes = 32768       # Maximum number of bytes Codex reads from AGENTS.md files.
+# project_doc_fallback_filenames = [] # Additional filenames to try when AGENTS.md is missing.
+# project_root_markers = [".git"]     # Markers used when searching upward for a project root.
+
+# ---------------------------------------------------------------------------
+# History, file opener, UI, and misc root options
+# ---------------------------------------------------------------------------
+
+# file_opener = "cursor"              # URI scheme for clickable file citations: vscode | vscode-insiders | windsurf | cursor | none.
+# hide_agent_reasoning = false        # Hide reasoning events from the TUI and `codex exec` output.
+# show_raw_agent_reasoning = false    # Surface raw reasoning content when the model emits it.
+# disable_paste_burst = false         # Disable burst-paste detection in the TUI.
+# windows_wsl_setup_acknowledged = false # Track Windows onboarding acknowledgement state.
+# check_for_update_on_startup = true  # Check for Codex updates when the CLI starts.
+# web_search = "cached"               # Web search mode: disabled | cached | live.
+# profile = "default"                 # Select a named profile from `[profiles]` at startup.
+# suppress_unstable_features_warning = true # Hide warnings about under-development features.
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+
+notify = ["/Users/djh/.codex/plugins/cache/openai-bundled/computer-use/1.0.758/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
+
+[tools]
+# view_image = true                   # Enable the `view_image` tool explicitly.
+
+# ---------------------------------------------------------------------------
+# Agents
+# ---------------------------------------------------------------------------
+
+#[agents]
+#max_threads = 6                     # Maximum number of concurrently open agent threads.
+#max_depth = 1                       # Maximum nested agent depth; root sessions start at depth 0.
+# job_max_runtime_seconds = 1800      # Default timeout for `spawn_agents_on_csv` worker jobs.
+
+# [agents.reviewer]
+# description = "Find correctness, security, and test risks in code." # Human-readable role description.
+# config_file = "/Users/djh/.codex/agents/reviewer.toml" # Optional extra config layer for this agent role.
+# nickname_candidates = ["Athena", "Ada"] # Optional display-name pool for spawned agents in this role.
+
+# ---------------------------------------------------------------------------
+# Skill overrides
+# ---------------------------------------------------------------------------
+
+# [[skills.config]]
+# path = "/Users/djh/.codex/skills/example/SKILL.md" # Absolute path to the skill folder containing `SKILL.md`.
+# enabled = false                    # Disable that specific skill without deleting it from disk.
+
+# ---------------------------------------------------------------------------
+# Sandbox behavior for `sandbox_mode = "workspace-write"`
+# ---------------------------------------------------------------------------
+
+[sandbox_workspace_write]
+network_access = true               # Allow outbound network access inside the workspace-write sandbox.
+# writable_roots = ["/Users/djh/.codex", "/tmp"] # Additional writable directories besides the current workspace.
+# exclude_tmpdir_env_var = false    # Exclude `$TMPDIR` from the sandbox writable roots.
+# exclude_slash_tmp = false         # Exclude `/tmp` from the sandbox writable roots.
+
+# ---------------------------------------------------------------------------
+# Shell environment policy
+# ---------------------------------------------------------------------------
+
+# [shell_environment_policy]
+# inherit = "all"                   # Base environment inheritance for subprocesses: all | core | none.
+# ignore_default_excludes = false   # Keep variables like *_TOKEN and *_SECRET instead of filtering them out.
+# exclude = ["AWS_*"]               # Case-insensitive glob patterns to remove from the inherited environment.
+# set = { FOO = "bar" }             # Environment variables to inject into every spawned subprocess.
+# include_only = ["PATH", "HOME"]   # If set, keep only matching environment variables.
+# experimental_use_profile = false  # Load your shell profile files before spawning subprocesses.
+
+# ---------------------------------------------------------------------------
+# Managed network proxy permissions
+# ---------------------------------------------------------------------------
+
+# [permissions.network]
+# enabled = true                    # Turn on Codex-managed network proxying rules.
+# proxy_url = "http://127.0.0.1:43128" # HTTP proxy URL used by managed outbound traffic.
+# admin_url = "http://127.0.0.1:43129" # Admin/control endpoint for the managed proxy.
+# enable_socks5 = false             # Also expose a SOCKS5 proxy endpoint.
+# socks_url = "http://127.0.0.1:43130" # SOCKS5 proxy URL when SOCKS support is enabled.
+# enable_socks5_udp = false         # Allow UDP over the managed SOCKS5 proxy.
+# allow_upstream_proxy = false      # Allow the managed proxy to forward through another upstream proxy.
+# dangerously_allow_non_loopback_proxy = false # Permit binding the proxy to non-loopback addresses.
+# dangerously_allow_non_loopback_admin = false # Permit binding the admin endpoint to non-loopback addresses.
+# dangerously_allow_all_unix_sockets = false # Allow unrestricted Unix socket access through the proxy layer.
+# mode = "limited"                  # Proxy rule mode: `limited` or `full`.
+# allowed_domains = ["api.openai.com"] # Domains explicitly allowed through the proxy.
+# denied_domains = ["example.com"]  # Domains explicitly denied through the proxy.
+# allow_unix_sockets = ["/var/run/docker.sock"] # Unix sockets allowed through the proxy layer.
+# allow_local_binding = false       # Allow tools to bind local listening sockets.
+
+# ---------------------------------------------------------------------------
+# History persistence
+# ---------------------------------------------------------------------------
+
+# [history]
+# persistence = "save-all"          # History persistence mode: save-all | none.
+# max_bytes = 5242880               # Trim oldest history entries once the file exceeds this many bytes.
+
+# ---------------------------------------------------------------------------
+# TUI notifications and appearance
+# ---------------------------------------------------------------------------
+
+[tui]
+notifications = true               # Enable TUI notifications, or set a filtered list of event ids instead of `true`.
+notification_method = "auto"       # Terminal notification method: auto | osc9 | bel.
+animations = true                 # Enable welcome, spinner, and status animations in the TUI.
+
+[tui.model_availability_nux]
+"gpt-5.5" = 4
+# show_tooltips = true              # Show onboarding tooltips on the welcome screen.
+# alternate_screen = "auto"         # Alternate screen mode: auto | always | never.
+# status_line = ["model-with-reasoning", "context-remaining", "current-dir"] # Footer items shown in the status line.
+# theme = "catppuccin-mocha"        # Syntax-highlighting theme name for the TUI.
+
+# [tui.model_availability_nux]
+# "gpt-5.4" = 1                     # Internal tooltip state keyed by model slug; usually managed by Codex.
+
+# ---------------------------------------------------------------------------
+# Analytics, feedback, and notices
+# ---------------------------------------------------------------------------
+
+# [analytics]
+# enabled = true                    # Enable analytics for this machine/profile.
+
+# [feedback]
+# enabled = true                    # Allow `/feedback` submissions.
+
+[notice]
+hide_gpt5_1_migration_prompt = true           # Record that the GPT-5.1 migration prompt was acknowledged.
+hide_gpt-5.1-codex-max_migration_prompt = true # Record that the GPT-5.1 Codex Max migration prompt was acknowledged.
+hide_full_access_warning = true               # Record that the full-access warning was acknowledged.
+# hide_rate_limit_model_nudge = true          # Hide the suggestion to switch models when hitting limits.
+# hide_world_writable_warning = true          # Windows-only acknowledgement for world-writable directory warnings.
+
+[notice.model_migrations]
+"gpt-5.1-codex-max" = "gpt-5.2-codex"         # Remember that this model migration prompt was already acknowledged.
+"gpt-5.1-codex" = "gpt-5.2-codex"             # Remember that this model migration prompt was already acknowledged.
+"gpt-5.2-codex" = "gpt-5.3-codex"             # Remember that this model migration prompt was already acknowledged.
+
+# ---------------------------------------------------------------------------
+# Feature flags
+# Runtime-accepted flags are listed here; removed/deprecated flags are omitted.
+# ---------------------------------------------------------------------------
+
+[features]
+unified_exec = true                 # Use the PTY-backed unified exec implementation.
+shell_snapshot = true               # Cache shell environment snapshots to speed up repeated commands.
+multi_agent = true                  # Enable multi-agent collaboration tools.
+apps = true                         # Enable apps/connectors support.
+plugins = true                      # Enable the local plugin system.
+js_repl = true                      # Enable the JavaScript REPL.
+prevent_idle_sleep = true           # Prevent the machine from sleeping while a turn is active.
+
+# shell_tool = true                 # Enable the standard shell tool.
+# personality = true                # Enable model personality controls.
+# fast_mode = true                  # Enable Fast mode selection and the `service_tier = "fast"` path.
+enable_request_compression = true # Compress streaming request bodies when supported.
+# skill_mcp_dependency_install = true # Allow prompting to install missing skill MCP dependencies.
+# guardian_approval = true          # Route eligible approvals through the guardian reviewer flow.
+# apply_patch_freeform = true       # Opt into the newer freeform `apply_patch` tool behavior.
+# undo = true                       # Enable undo support in Codex.
+tool_suggest = true               # Enable discoverable tool suggestions.
+# tool_call_mcp_elicitation = true  # Allow MCP elicitation support for tool calls.
+enable_fanout = true              # Enable experimental fanout support for certain workflows.
+multi_agent_v2 = true             # Enable the newer multi-agent implementation.
+tool_search = true                # Enable experimental tool search/discovery.
+# runtime_metrics = true            # Enable internal runtime metrics collection.
+memories = true                   # Enable the memories subsystem.
+# js_repl_tools_only = true         # Restrict JS REPL access to tool-backed use cases.
+# code_mode = true                  # Enable experimental code mode support.
+# code_mode_only = true             # Restrict sessions to code mode when enabled.
+
+# ---------------------------------------------------------------------------
+# MCP servers
+# ---------------------------------------------------------------------------
+
+# [mcp_servers.docs]
+# enabled = true                    # Disable this server without removing its definition.
+# required = true                   # Fail startup/resume if this server cannot initialize.
+# command = "docs-server"           # Launcher command for a stdio MCP server.
+# args = ["--port", "4000"]         # Arguments passed to the stdio server command.
+# env = { API_KEY = "value" }       # Static environment variables forwarded to the server process.
+# env_vars = ["ANOTHER_SECRET"]     # Names of parent environment variables to forward through.
+# cwd = "/path/to/server"           # Working directory for the MCP server process.
+# startup_timeout_sec = 10.0        # Time to wait for server startup before failing.
+# startup_timeout_ms = 10000        # Millisecond alias for startup timeout.
+# tool_timeout_sec = 60.0           # Per-tool timeout for calls sent to this server.
+# enabled_tools = ["search"]        # Allow-list of tools exposed from this server.
+# disabled_tools = ["slow-tool"]    # Deny-list of tools exposed from this server.
+# scopes = ["read:docs"]            # OAuth scopes requested for this server when needed.
+# oauth_resource = "https://docs.example.com/" # OAuth resource/audience for this server.
+
+# [mcp_servers.github-http]
+# enabled = true                    # Leave the server enabled.
+# required = true                   # Require the server to initialize successfully.
+# url = "https://github-mcp.example.com/mcp" # Streamable HTTP MCP endpoint.
+# bearer_token_env_var = "GITHUB_TOKEN" # Environment variable supplying the bearer token.
+# http_headers = { "X-Example" = "value" } # Static headers to send with each MCP HTTP request.
+# env_http_headers = { "X-Auth" = "AUTH_ENV" } # Header values sourced from environment variables.
+# startup_timeout_sec = 10.0        # Startup grace period for HTTP transport initialization.
+# tool_timeout_sec = 60.0           # Per-tool timeout for HTTP MCP calls.
+# enabled_tools = ["list_issues"]   # Allow-list of tools exposed from this HTTP server.
+# disabled_tools = ["delete_issue"] # Deny-list of tools exposed from this HTTP server.
+# scopes = ["repo"]                 # OAuth scopes requested for this HTTP server.
+
+codex_hooks = true
+[mcp_servers.fetch]
+command = "uvx"                     # Launch the Fetch MCP server with `uvx`.
+args = ["mcp-server-fetch"]         # Package entrypoint passed to `uvx`.
+enabled = false                   # Disable Fetch without deleting its config.
+# required = false                  # Start even if Fetch fails to initialize.
+# env = { UV_CACHE_DIR = "/tmp/uv" } # Extra environment variables forwarded to Fetch.
+# env_vars = ["OPENAI_API_KEY"]     # Parent environment variables to pass through to Fetch.
+# startup_timeout_sec = 10.0        # Startup grace period for the Fetch server.
+# tool_timeout_sec = 60.0           # Per-tool timeout for calls into Fetch.
+
+[mcp_servers.serena]
+command = "uvx"                     # Launch Serena via `uvx`.
+args = ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context", "codex"] # Fetch and start Serena from Git.
+enabled = false                     # Keep Serena available in config but disabled by default.
+# required = false                  # Do not fail startup if Serena is unavailable.
+
+[mcp_servers.lsp]
+command = "docker"                  # Launch the LSP MCP server via Docker.
+args = ["run", "-i", "--rm", "docker.io/jonrad/lsp-mcp:0.3.1"] # Start the published LSP MCP image.
+enabled = false                     # Keep the LSP server installed but disabled by default.
+# required = false                  # Do not fail startup if the LSP server is unavailable.
+
+[mcp_servers.chrome-devtools]
+command = "npx"                     # Launch the Chrome DevTools MCP server via `npx`.
+args = ["chrome-devtools-mcp@latest"] # Install or reuse the latest Chrome DevTools MCP package.
+enabled = false                     # Keep browser automation opt-in.
+# required = false                  # Do not fail startup if Chrome DevTools MCP is unavailable.
+
+[mcp_servers.chrome-devtools.tools.new_page]
+approval_mode = "approve"           # Always approve opening a new browser page via this MCP tool.
+
+[mcp_servers.chrome-devtools.tools.take_snapshot]
+approval_mode = "approve"           # Always approve snapshot capture via this MCP tool.
+
+[mcp_servers.chrome-devtools.tools.evaluate_script]
+approval_mode = "approve"           # Always approve page-side script evaluation via this MCP tool.
+
+[mcp_servers.chrome-devtools.tools.get_network_request]
+approval_mode = "approve"           # Always approve captured request inspection via this MCP tool.
+
+[mcp_servers.chrome-devtools.tools.navigate_page]
+approval_mode = "approve"           # Always approve page navigation via this MCP tool.
+
+[mcp_servers.chrome-devtools.tools.take_screenshot]
+approval_mode = "approve"
+
+[mcp_servers.chrome-devtools.tools.click]
+approval_mode = "approve"
+
+[mcp_servers.chrome-devtools.tools.fill]
+approval_mode = "approve"
+
+# ---------------------------------------------------------------------------
+# Model providers
+# ---------------------------------------------------------------------------
+
+# [model_providers]
+# [model_providers.openaidr]
+# name = "OpenAI Data Residency"    # Friendly display name for this provider entry.
+# base_url = "https://us.api.openai.com/v1" # Base URL for an OpenAI-compatible Responses API endpoint.
+# wire_api = "responses"            # Wire format used by the provider; Codex currently expects `responses`.
+# requires_openai_auth = true       # Reuse OpenAI-auth login flow for this provider.
+# request_max_retries = 4           # Maximum retries for ordinary HTTP requests.
+# stream_max_retries = 5            # Maximum retries for streaming requests.
+# stream_idle_timeout_ms = 300000   # Idle timeout for streaming responses in milliseconds.
+# supports_websockets = true        # Declare websocket support when the provider offers it.
+# experimental_bearer_token = "sk-example" # Direct bearer token for development-only use.
+# http_headers = { "X-Example" = "value" } # Static headers sent with every request.
+# env_http_headers = { "OpenAI-Organization" = "OPENAI_ORGANIZATION", "OpenAI-Project" = "OPENAI_PROJECT" } # Headers populated from environment variables.
+
+# [model_providers.azure]
+# name = "Azure"                    # Friendly display name for this provider entry.
+# base_url = "https://YOUR_PROJECT_NAME.openai.azure.com/openai" # Azure OpenAI-compatible base URL.
+# wire_api = "responses"            # Wire format used by the provider.
+# query_params = { api-version = "2025-04-01-preview" } # Static query params appended to every request.
+# env_key = "AZURE_OPENAI_API_KEY"  # Environment variable containing the provider API key.
+# env_key_instructions = "Set AZURE_OPENAI_API_KEY in your environment" # Guidance shown if the env key is missing.
+# supports_websockets = false       # Declare websocket support when relevant.
+
+# [model_providers.ollama]
+# name = "Ollama"                   # Friendly display name for a local provider.
+# base_url = "http://localhost:11434/v1" # Local OpenAI-compatible base URL.
+# wire_api = "responses"            # Wire format used by the provider.
+
+# ---------------------------------------------------------------------------
+# Apps and connectors
+# ---------------------------------------------------------------------------
+
+[apps]
+
+# [apps._default]
+# enabled = true                    # Enable apps by default unless overridden per app.
+# destructive_enabled = true        # Allow app tools marked as destructive by default.
+# open_world_enabled = true         # Allow app tools that can reach the open world by default.
+
+# [apps.google_drive]
+# enabled = false                   # Disable this specific app.
+# destructive_enabled = false       # Block destructive-hint tools for this app.
+# default_tools_enabled = true      # Enable tools in this app by default.
+# default_tools_approval_mode = "prompt" # Default approval mode for this app's tools: auto | prompt | approve.
+
+# [apps.google_drive.tools."files/delete"]
+# enabled = false                   # Disable this specific app tool.
+# approval_mode = "approve"         # Always approve this specific app tool.
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_reply_to_review_comment]
+approval_mode = "approve"           # Always approve this specific GitHub connector tool.
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_create_pull_request]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_create_issue]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_update_issue]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_create_branch]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_create_file]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_update_file]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_mark_pull_request_ready_for_review]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_merge_pull_request]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_add_comment_to_issue]
+approval_mode = "approve"
+
+# ---------------------------------------------------------------------------
+# Plugins
+# ---------------------------------------------------------------------------
+
+[plugins."github@openai-curated"]
+enabled = true                      # Keep the curated GitHub plugin enabled.
+
+[plugins."build-web-apps@openai-curated"]
+enabled = false                     # Keep the curated build-web-apps plugin installed but disabled.
+
+[plugins."browser-use@openai-bundled"]
+enabled = true
+
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = false
+
+[plugins."slack@openai-curated"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."superpowers@openai-curated"]
+enabled = true
+
+[plugins."build-macos-apps@openai-curated"]
+enabled = true
+
+[plugins."build-ios-apps@openai-curated"]
+enabled = true
+
+[plugins."temporal@openai-curated"]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+
+[profiles]
+
+# [profiles.default]
+# model = "gpt-5.4"                 # Override the default model only when this profile is selected.
+# model_provider = "openai"         # Override the provider only for this profile.
+# approval_policy = "on-request"    # Override command approval behavior for this profile.
+# sandbox_mode = "read-only"        # Override sandbox policy for this profile.
+# service_tier = "flex"             # Override preferred service tier for this profile.
+# oss_provider = "ollama"           # Override the default local OSS provider for this profile.
+# model_reasoning_effort = "medium" # Override reasoning effort for this profile.
+# plan_mode_reasoning_effort = "high" # Override plan-mode reasoning for this profile.
+# model_reasoning_summary = "auto"  # Override reasoning summaries for this profile.
+# model_verbosity = "medium"        # Override GPT-5 verbosity for this profile.
+# personality = "pragmatic"         # Override personality for this profile.
+# chatgpt_base_url = "https://chatgpt.com/backend-api/" # Override ChatGPT auth base URL for this profile.
+# model_catalog_json = "./models.json" # Override model catalog path for this profile.
+# model_instructions_file = "./instructions.txt" # Override built-in model instructions for this profile.
+# experimental_compact_prompt_file = "./compact_prompt.txt" # Override compaction prompt file for this profile.
+# tools_view_image = true           # Enable the `view_image` tool when this profile is selected.
+# features = { unified_exec = false } # Override feature flags for this profile inline.
+
+# ---------------------------------------------------------------------------
+# Projects
+# ---------------------------------------------------------------------------
+
+[projects."/Users/djh"]
+trust_level = "trusted"             # Trust everything under your home directory.
+
+[projects."/Users/djh/Downloads"]
+trust_level = "trusted"             # Trust your Downloads directory.
+
+[projects."/Users/djh/Documents/github.com/djh00t/keystone"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/Documents/github.com/etro-js/etro"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/agentskills"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/arby"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/code_pipeline"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/kcmt"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/openclaw"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/spec-kit"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/underdog_ha"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/ha_amber_sigen"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/openai_finance"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/rusty_photos"]
+trust_level = "trusted"             # Trust this repo's instructions and tool context.
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/kids_movie"]
+trust_level = "trusted"
+
+[projects."/Users/djh/work/src/github.com_local/djh00t/openai_finance"]
+trust_level = "trusted"
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry
+# ---------------------------------------------------------------------------
+
+[otel]
+# log_user_prompt = false           # Include end-user prompt text in telemetry logs.
+# environment = "dev"               # Environment label attached to telemetry events.
+# exporter = "none"                 # Log exporter: none | otlp-http | otlp-grpc.
+# trace_exporter = "none"           # Trace exporter: none | otlp-http | otlp-grpc.
+# metrics_exporter = "statsig"      # Metrics exporter: none | statsig | otlp-http | otlp-grpc.
+
+# [otel.exporter."otlp-http"]
+# endpoint = "https://otel.example.com/v1/logs" # OTLP/HTTP log exporter endpoint.
+# protocol = "binary"               # OTLP/HTTP protocol format: binary | json.
+
+# [otel.exporter."otlp-http".headers]
+# "x-otlp-api-key" = "${OTLP_TOKEN}" # Static header values sent to the OTLP/HTTP exporter.
+
+# [otel.exporter."otlp-http".tls]
+# ca-certificate = "certs/otel-ca.pem" # CA certificate path for TLS verification.
+# client-certificate = "/etc/codex/certs/client.pem" # Client certificate path for mutual TLS.
+# client-private-key = "/etc/codex/certs/client-key.pem" # Client private key path for mutual TLS.
+
+# [otel.trace_exporter."otlp-grpc"]
+# endpoint = "https://otel.example.com:4317" # OTLP/gRPC trace exporter endpoint.
+# headers = { "x-otlp-meta" = "abc123" } # Static metadata headers sent to the OTLP/gRPC trace exporter.
+
+# ---------------------------------------------------------------------------
+# Windows
+# ---------------------------------------------------------------------------
+
+[windows]
+
+[marketplaces.openai-bundled]
+last_updated = "2026-04-29T21:27:18Z"
+source_type = "local"
+source = "/Users/djh/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-04-30T12:02:13Z"
+source_type = "local"
+source = "/Users/djh/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/ios-app-intents/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/ios-debugger-agent/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/ios-ettrace-performance/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/ios-memgraph-leaks/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/swiftui-liquid-glass/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/swiftui-performance-audit/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/swiftui-ui-patterns/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-ios-apps/6807e4de/skills/swiftui-view-refactor/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/appkit-interop/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/liquid-glass/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/packaging-notarization/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/signing-entitlements/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/swiftpm-macos/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/swiftui-patterns/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/telemetry/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/test-triage/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/view-refactor/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/window-management/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/skills/polymarket-repo-map/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/slack/6807e4de/skills/slack/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/slack/6807e4de/skills/slack-channel-summarization/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/slack/6807e4de/skills/slack-daily-digest/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/slack/6807e4de/skills/slack-notification-triage/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/slack/6807e4de/skills/slack-outgoing-message/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/slack/6807e4de/skills/slack-reply-drafting/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/brainstorming/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/dispatching-parallel-agents/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/executing-plans/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/receiving-code-review/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/requesting-code-review/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/subagent-driven-development/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/systematic-debugging/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/test-driven-development/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/using-git-worktrees/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/using-superpowers/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/verification-before-completion/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/writing-plans/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/writing-skills/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/build-macos-apps/6807e4de/skills/build-run-debug/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/skills/speech/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/superpowers/skills/finishing-a-development-branch/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/skills/.system/imagegen/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/skills/transcribe/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/djh/.codex/plugins/cache/openai-curated/temporal/6807e4de/skills/temporal-developer/SKILL.md"
+enabled = false
+# sandbox = "unelevated"            # Native Windows sandbox mode: unelevated | elevated.
+
+###############################################################################
+# Removed or intentionally omitted because they are deprecated or no longer
+# accepted by the current runtime:
+# - `[defaults]` and the old per-project default layout
+# - `approval_policy = "on-failure"`
+# - `shell = "bash"` and `working_directory = ...`
+# - `[mcp.servers.*]` in favor of `[mcp_servers.*]`
+# - `[experimental].prefer_apply_patch`
+# - `disable_mcp`
+# - `[features].steer`
+# - Legacy `features.web_search*` toggles
+#
+# Documentation/runtime normalization applied here:
+# - The current sample still references `smart_approvals`, but the installed
+#   runtime/schema uses `guardian_approval`, so this file uses the runtime key.
+# - Root-level tool configuration uses `[tools]` for `view_image`, while
+#   profile-scoped examples still use `tools_view_image`; both are documented.
+###############################################################################
+
+[profiles.ollama-launch]
+openai_base_url = "http://127.0.0.1:11434/v1/"
+forced_login_method = "api"
+model_provider = "ollama-launch"
+[model_providers.ollama-launch]
+name = "Ollama"
+base_url = "http://127.0.0.1:11434/v1/"
