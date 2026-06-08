@@ -13,6 +13,13 @@ description: Choose a safe dependency version before adding or upgrading a packa
 
 Use this for direct dependency adds, upgrades, pin updates, or dependency review tasks in Python, Rust, JavaScript, shell, or Swift projects.
 
+## CLI Setup
+
+- Keep the `dependency-advisor` project checked out in a normal workspace or worktree that Codex can access.
+- From that checkout, run `make install` to sync the environment and install the `depadvisor` console script.
+- Run the tool from the same checkout with `uv run depadvisor <command>` when you need an on-demand execution path.
+- Do not install the executable under `~/.agents/skills`; that directory is for the skill instructions only.
+
 ## Workflow
 
 1. Determine the package name, ecosystem, and policy mode.
