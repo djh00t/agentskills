@@ -15,7 +15,8 @@ Use this for direct dependency adds, upgrades, pin updates, or dependency review
 
 ## CLI Setup
 
-- Keep the `dependency-advisor` code in a git checkout that Codex can access, for example `git clone https://github.com/djh00t/dependency-advisor.git ~/work/src/github.com_local/djh00t/dependency-advisor`.
+- Keep the `dependency-advisor` code in a git checkout that Codex can access. The canonical skill source lives in the repository tree at `https://github.com/djh00t/dependency-advisor/tree/main/.agents/skills`.
+- Clone or open the repository checkout that contains that tree, for example `git clone https://github.com/djh00t/dependency-advisor.git ~/work/src/github.com_local/djh00t/dependency-advisor`.
 - From that repository checkout, run `make install` to sync the environment and install the `depadvisor` console script.
 - Run the tool from the same checkout with `uv run depadvisor <command>` when you need an on-demand execution path.
 - Do not install the executable under `~/.agents/skills`; that directory is for the skill instructions only.
