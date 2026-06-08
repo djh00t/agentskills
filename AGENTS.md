@@ -1,7 +1,14 @@
 ## Read the following files before starting
 
-@/Users/djh/.codex/AGENTS-RTK.md
-@/Users/djh/.codex/AGENTS-CONTEXT-MODE.md
+@~/.codex/AGENTS-RTK.md
+@~/.codex/AGENTS-CONTEXT-MODE.md
+
+## Dependency Advisor
+
+- Before adding or upgrading a direct dependency, run `depadvisor recommend <package> --ecosystem <ecosystem> --policy <policy>`.
+- Use the returned `recommended_version` exactly when `status` is `recommended`.
+- If `status` is `unknown_package` or `no_match`, stop and explain that the package was not auto-approved.
+- Prefer the repo-local skill at `.agents/skills/dependency-advisor/SKILL.md` when the task is specifically about dependency selection.
 
 These instructions outline the standard workflow that must be followed when working on my projects.
 
