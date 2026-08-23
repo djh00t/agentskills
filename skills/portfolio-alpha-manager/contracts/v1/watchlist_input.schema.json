@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pam.contracts.v1.watchlist_input",
+    "type": "object",
+    "required": [
+        "as_of",
+        "symbols"
+    ],
+    "properties": {
+        "as_of": {
+            "type": "string",
+            "format": "date"
+        },
+        "symbols": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 1
+        }
+    }
+}

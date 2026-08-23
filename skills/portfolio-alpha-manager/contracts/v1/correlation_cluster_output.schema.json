@@ -1,0 +1,59 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pam.contracts.v1.correlation_cluster_output",
+    "type": "object",
+    "required": [
+        "as_of",
+        "cluster_map",
+        "cluster_stats",
+        "cluster_map_hash"
+    ],
+    "properties": {
+        "as_of": {
+            "type": "string",
+            "format": "date"
+        },
+        "cluster_map": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
+        "cluster_stats": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "cluster_id",
+                    "size",
+                    "symbols",
+                    "avg_corr"
+                ],
+                "properties": {
+                    "cluster_id": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "symbols": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "avg_corr": {
+                        "type": "number"
+                    },
+                    "min_corr": {
+                        "type": "number"
+                    }
+                }
+            }
+        },
+        "cluster_map_hash": {
+            "type": "string"
+        }
+    }
+}

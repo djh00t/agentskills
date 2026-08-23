@@ -1,0 +1,112 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pam.contracts.v1.portfolio_input",
+    "type": "object",
+    "required": [
+        "as_of",
+        "base_currency",
+        "cash_available",
+        "margin_available",
+        "holdings"
+    ],
+    "properties": {
+        "as_of": {
+            "type": "string",
+            "format": "date"
+        },
+        "base_currency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+        },
+        "cash_available": {
+            "type": "number",
+            "minimum": 0
+        },
+        "margin_available": {
+            "type": "number",
+            "minimum": 0
+        },
+        "holdings": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/holding"
+            }
+        }
+    },
+    "$defs": {
+        "holding": {
+            "type": "object",
+            "required": [
+                "symbol",
+                "quantity",
+                "avg_price",
+                "purchase_date"
+            ],
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "quantity": {
+                    "type": "number"
+                },
+                "avg_price": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "purchase_date": {
+                    "type": "string",
+                    "format": "date"
+                },
+                "sector": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "cluster": {
+                    "type": [
+                        "string",
+                        "null"
+                    ]
+                },
+                "lots": {
+                    "type": [
+                        "array",
+                        "null"
+                    ],
+                    "items": {
+                        "$ref": "#/$defs/lot"
+                    }
+                }
+            }
+        },
+        "lot": {
+            "type": "object",
+            "required": [
+                "lot_id",
+                "quantity",
+                "cost_basis",
+                "purchase_date"
+            ],
+            "properties": {
+                "lot_id": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "cost_basis": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "purchase_date": {
+                    "type": "string",
+                    "format": "date"
+                }
+            }
+        }
+    }
+}
