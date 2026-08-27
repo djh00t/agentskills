@@ -1,0 +1,77 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pam.contracts.v1.recommendation",
+    "type": "object",
+    "required": [
+        "symbol",
+        "action",
+        "confidence",
+        "entry_range",
+        "exit_range",
+        "hard_stop",
+        "trailing_stop",
+        "position_size_pct",
+        "reward_risk_ratio",
+        "tax_note",
+        "fees_note"
+    ],
+    "properties": {
+        "symbol": {
+            "type": "string"
+        },
+        "action": {
+            "type": "string",
+            "enum": [
+                "ACCUMULATE",
+                "BUY",
+                "HOLD",
+                "TRIM",
+                "SELL"
+            ]
+        },
+        "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+        },
+        "entry_range": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+        },
+        "exit_range": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+        },
+        "hard_stop": {
+            "type": "number"
+        },
+        "trailing_stop": {
+            "type": "string"
+        },
+        "position_size_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+        },
+        "reward_risk_ratio": {
+            "type": "number"
+        },
+        "tax_note": {
+            "type": "string"
+        },
+        "fees_note": {
+            "type": "string"
+        },
+        "diagnostics": {
+            "type": "object"
+        }
+    }
+}

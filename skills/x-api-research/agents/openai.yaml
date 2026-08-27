@@ -1,0 +1,4 @@
+interface:
+  display_name: "X API Research"
+  short_description: "Search, stream, and retrieve X content for analysis"
+  default_prompt: "Use this skill to collect X posts, bookmarks, list timelines, user timelines, post details, and news via Python XDK."

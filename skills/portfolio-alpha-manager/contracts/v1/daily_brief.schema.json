@@ -1,0 +1,170 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pam.contracts.v1.daily_brief",
+    "type": "object",
+    "required": [
+        "date",
+        "macro_mode",
+        "portfolio_heat",
+        "cash_utilisation",
+        "recommendations",
+        "watchlist_opportunities"
+    ],
+    "properties": {
+        "date": {
+            "type": "string",
+            "format": "date"
+        },
+        "macro_mode": {
+            "type": "string",
+            "enum": [
+                "RISK_ON",
+                "RISK_OFF",
+                "NEUTRAL"
+            ]
+        },
+        "portfolio_heat": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+        },
+        "cash_utilisation": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+        },
+        "recommendations": {
+            "type": "array",
+            "items": {
+                "$ref": "recommendation.schema.json"
+            }
+        },
+        "watchlist_opportunities": {
+            "type": "array",
+            "items": {
+                "$ref": "recommendation.schema.json"
+            }
+        },
+        "risk_alerts": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "notes": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "trade_plan": {
+            "type": [
+                "object",
+                "null"
+            ],
+            "properties": {
+                "target_weights": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "number"
+                    }
+                },
+                "orders": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "symbol",
+                            "side",
+                            "quantity",
+                            "limit_range",
+                            "estimated_fees"
+                        ],
+                        "properties": {
+                            "symbol": {
+                                "type": "string"
+                            },
+                            "side": {
+                                "type": "string",
+                                "enum": [
+                                    "BUY",
+                                    "SELL"
+                                ]
+                            },
+                            "quantity": {
+                                "type": "number"
+                            },
+                            "limit_range": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number"
+                                },
+                                "minItems": 2,
+                                "maxItems": 2
+                            },
+                            "estimated_fees": {
+                                "type": "number"
+                            },
+                            "tax_lots": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "audit": {
+            "type": [
+                "object",
+                "null"
+            ],
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "format": "date"
+                },
+                "code_version": {
+                    "type": "string"
+                },
+                "policy_version": {
+                    "type": "string"
+                },
+                "input_hashes": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "market_snapshot_id": {
+                    "type": "string"
+                },
+                "correlation_clusters": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "properties": {
+                        "window_days": {
+                            "type": "integer"
+                        },
+                        "distance_threshold": {
+                            "type": "number"
+                        },
+                        "cluster_map_hash": {
+                            "type": "string"
+                        },
+                        "snapshot_id": {
+                            "type": "string"
+                        },
+                        "policy_version": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

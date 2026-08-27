@@ -1,0 +1,14 @@
+{
+    "AAPL": {
+        "sector": "TECH",
+        "cluster": "MEGA_TECH"
+    },
+    "NVDA": {
+        "sector": "TECH",
+        "cluster": "AI_SEMIS"
+    },
+    "GLDM": {
+        "sector": "COMMODITIES",
+        "cluster": "GOLD"
+    }
+}

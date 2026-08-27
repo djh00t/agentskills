@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pam.contracts.v1.market_context",
+    "type": "object",
+    "required": [
+        "as_of",
+        "regime"
+    ],
+    "properties": {
+        "as_of": {
+            "type": "string",
+            "format": "date"
+        },
+        "regime": {
+            "type": "string",
+            "enum": [
+                "RISK_ON",
+                "RISK_OFF",
+                "NEUTRAL"
+            ]
+        },
+        "volatility_proxy": {
+            "type": [
+                "string",
+                "null"
+            ]
+        },
+        "volatility_value": {
+            "type": [
+                "number",
+                "null"
+            ]
+        },
+        "benchmark": {
+            "type": [
+                "string",
+                "null"
+            ]
+        }
+    }
+}

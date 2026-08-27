@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pam.contracts.v1.correlation_cluster_input",
+    "type": "object",
+    "required": [
+        "as_of",
+        "symbols",
+        "policy_ref",
+        "market_snapshot_id"
+    ],
+    "properties": {
+        "as_of": {
+            "type": "string",
+            "format": "date"
+        },
+        "symbols": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 2
+        },
+        "policy_ref": {
+            "type": "string"
+        },
+        "market_snapshot_id": {
+            "type": "string"
+        }
+    }
+}
