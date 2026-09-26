@@ -1,0 +1,6 @@
+{
+  "name": "fsm-ledger",
+  "version": "0.1.0",
+  "description": "Append harness usage into the shared feature-status-matrix ledger.",
+  "hooks": "./.codex-plugin/hooks.json"
+}
