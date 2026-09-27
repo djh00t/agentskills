@@ -12,6 +12,7 @@ Usage (with PYTHONPATH=~/.agents/skills/feature-status-matrix):
 from __future__ import annotations
 
 import functools
+import inspect
 import os
 from contextlib import ContextDecorator
 from typing import Any, Callable, Optional
@@ -114,19 +115,22 @@ def metered_call(
         def wrapper(*args: Any, **kw: Any) -> Any:
             with metered(model=model, work_package=work_package, **kwargs) as m:
                 try:
+                    params = inspect.signature(fn).parameters
+                except (TypeError, ValueError):
+                    params = {}
+                if "meter" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
                     return fn(*args, meter=m, **kw)
-                except TypeError:
-                    result = fn(*args, **kw)
-                    if isinstance(result, dict):
-                        m.add(
-                            input_tokens=int(result.get("input_tokens") or result.get("inputTokens") or 0),
-                            output_tokens=int(result.get("output_tokens") or result.get("outputTokens") or 0),
-                            cached_input_tokens=int(
-                                result.get("cached_input_tokens") or result.get("cachedInputTokens") or 0
-                            ),
-                            cost_total=result.get("cost_total") or result.get("costTotal"),
-                        )
-                    return result
+                result = fn(*args, **kw)
+                if isinstance(result, dict):
+                    m.add(
+                        input_tokens=int(result.get("input_tokens") or result.get("inputTokens") or 0),
+                        output_tokens=int(result.get("output_tokens") or result.get("outputTokens") or 0),
+                        cached_input_tokens=int(
+                            result.get("cached_input_tokens") or result.get("cachedInputTokens") or 0
+                        ),
+                        cost_total=result.get("cost_total") or result.get("costTotal"),
+                    )
+                return result
 
         return wrapper
 

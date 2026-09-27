@@ -1,12 +1,10 @@
 \
-"""Debounced render of FEATURE_STATUS_MATRIX.md — never block the agent on failure."""
+"""Render FEATURE_STATUS_MATRIX.md without blocking short-lived callers."""
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
-import threading
-import time
 import traceback
 from pathlib import Path
 from typing import Optional
@@ -16,11 +14,6 @@ from .ledger import _log
 
 _SKILL_ROOT = Path(__file__).resolve().parents[1]
 _RENDER_SCRIPT = _SKILL_ROOT / "tools" / "render_matrix.py"
-
-_lock = threading.Lock()
-_timers: dict[str, threading.Timer] = {}
-_DEFAULT_DELAY = 1.5
-
 
 def _project_paths(project: str) -> dict[str, Path]:
     root = matrices_root() / project
@@ -74,21 +67,15 @@ def render_now(project: str, *, mode: str = "full", area: Optional[str] = None) 
         return {"ok": False, "error": str(exc)}
 
 
-def schedule_render(project: str, *, delay: float = _DEFAULT_DELAY, mode: str = "full") -> None:
-    """Debounce render 1–2s; never blocks caller."""
-    def _fire() -> None:
-        with _lock:
-            _timers.pop(project, None)
-        render_now(project, mode=mode)
-
-    with _lock:
-        old = _timers.pop(project, None)
-        if old is not None:
-            try:
-                old.cancel()
-            except Exception:
-                pass
-        t = threading.Timer(max(0.5, float(delay)), _fire)
-        t.daemon = True
-        _timers[project] = t
-        t.start()
+def schedule_render(project: str, *, mode: str = "full") -> None:
+    """Start a render process that survives a short-lived hook or CLI."""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(_SKILL_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    subprocess.Popen(
+        [sys.executable, "-m", "fsm_ledger", "render", "--project", project, "--mode", mode],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        env=env,
+    )

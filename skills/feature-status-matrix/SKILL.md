@@ -129,7 +129,7 @@ python3 tools/render_matrix.py \
 
 ```bash
 cd ~/.agents/skills/feature-status-matrix
-PYTHONPATH=. python3 -m unittest discover -s tests -v
+make check
 ```
 
 ## Harness notes / phase-2 gaps

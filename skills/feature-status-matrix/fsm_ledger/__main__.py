@@ -145,7 +145,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", default=None)
     p.add_argument("--wp", default=None)
     p.add_argument("--harness", default=None)
-    p.add_argument("--render", action="store_true", help="Debounce-render after append")
+    p.add_argument("--render", action="store_true", help="Render after append in an independent process")
     p.set_defaults(func=_cmd_append)
 
     p = sub.add_parser("install", help="Install harness hooks")
