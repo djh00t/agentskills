@@ -6,6 +6,7 @@
           {
             "type": "command",
             "command": "$PLUGIN_ROOT/.codex-plugin/fsm-ledger-hook stop",
+            "async": true,
             "statusMessage": "fsm-ledger Stop capture"
           }
         ]
@@ -17,7 +18,7 @@
           {
             "type": "command",
             "command": "$PLUGIN_ROOT/.codex-plugin/fsm-ledger-hook session_end",
-            "statusMessage": "fsm-ledger SessionEnd render"
+            "statusMessage": "fsm-ledger SessionEnd queue"
           }
         ]
       }

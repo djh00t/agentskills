@@ -3,7 +3,7 @@
 Codex only loads hooks via plugins. This directory is a Codex plugin:
 
 - `.codex-plugin/hooks.json` — Stop + SessionEnd
-- `.codex-plugin/fsm-ledger-hook` — stdin JSON → `fsm_ledger.append` + debounce render
+- `.codex-plugin/fsm-ledger-hook` — queues stdin JSON; async Stop drains and renders
 
 ## Enable
 
@@ -17,6 +17,11 @@ marked `[marketplaces.fsm-ledger-local]` + `[plugins."fsm-ledger@fsm-ledger-loca
 
 **Trust reminder:** Codex will prompt to trust the new hooks. Accept them. Existing
 brute / ponytail / context-mode hooks are not modified.
+
+Stop runs asynchronously in Codex. SessionEnd always runs synchronously, so
+it only queues its payload. The next Stop drains pending events from
+`~/.agents/status-matrices/_hook_pending/`. The hook exits 0 without output
+after accepting the event.
 
 ## Manual test
 

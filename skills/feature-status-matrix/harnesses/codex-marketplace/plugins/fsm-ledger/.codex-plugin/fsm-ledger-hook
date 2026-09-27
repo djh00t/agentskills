@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
-# fsm-ledger Codex hook — reads stdin JSON, appends usage, debounce-renders on Stop/SessionEnd.
+# fsm-ledger Codex hook — queue events; Codex runs Stop processing asynchronously.
 set -euo pipefail
 EVENT="${1:-stop}"
+QUEUE="${FSM_MATRICES_ROOT:-${HOME}/.agents/status-matrices}/_hook_pending"
+mkdir -p "$QUEUE"
+PENDING="$(mktemp "$QUEUE/.pending-XXXXXXXX")"
+trap 'rm -f "$PENDING"' EXIT
+printf '%s\n' "$EVENT" > "$PENDING"
+cat >> "$PENDING"
+mv "$PENDING" "$QUEUE/event-${PENDING##*/}"
+trap - EXIT
+# Codex always runs SessionEnd synchronously, so return after durable acceptance.
+if [[ "$EVENT" == session_end ]]; then
+  exit 0
+fi
 SKILL_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 # When copied into codex-marketplace/plugins/fsm-ledger, climb to skill root:
 if [[ ! -d "$SKILL_ROOT/fsm_ledger" ]]; then
@@ -12,131 +24,4 @@ if [[ ! -d "$SKILL_ROOT/fsm_ledger" ]]; then
   SKILL_ROOT="${HOME}/.agents/skills/feature-status-matrix"
 fi
 export PYTHONPATH="${SKILL_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
-exec python3 - "$EVENT" <<'PY'
-import json, sys, os
-from pathlib import Path
-
-event_name = sys.argv[1] if len(sys.argv) > 1 else "stop"
-stdin_text = sys.stdin.read()
-
-# Ensure skill on path
-skill = Path(os.environ.get("PYTHONPATH", "").split(os.pathsep)[0])
-if str(skill) not in sys.path:
-    sys.path.insert(0, str(skill))
-
-from fsm_ledger.ledger import append_dict
-from fsm_ledger.render_trigger import schedule_render
-from fsm_ledger.attribute import resolve_project
-
-def deep_find(data, candidates):
-    wanted = set(candidates)
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k in wanted:
-                return v
-            found = deep_find(v, wanted)
-            if found is not None:
-                return found
-    elif isinstance(data, list):
-        for v in data:
-            found = deep_find(v, wanted)
-            if found is not None:
-                return found
-    return None
-
-def parse_hook_payload(text: str) -> dict:
-    text = (text or "").strip()
-    if not text:
-        return {}
-    try:
-        data = json.loads(text)
-        return data if isinstance(data, dict) else {"raw_payload": data}
-    except json.JSONDecodeError:
-        return {"raw_text": text}
-
-def as_int(v):
-    try:
-        return int(v) if v is not None else 0
-    except (TypeError, ValueError):
-        return 0
-
-def usage_from_payload(payload: dict) -> dict:
-    """Prefer usage fields; else best-effort transcript/rollout JSONL."""
-    usage = deep_find(payload, ["usage", "token_usage", "last_token_usage", "token_count"]) or {}
-    if not isinstance(usage, dict):
-        usage = {}
-    model = deep_find(payload, ["model", "model_slug"])
-    tc = deep_find(payload, ["turn_context"])
-    if not model and isinstance(tc, dict):
-        model = tc.get("model")
-    inp = as_int(usage.get("input_tokens") or usage.get("prompt_tokens") or deep_find(payload, ["input_tokens"]))
-    out = as_int(usage.get("output_tokens") or usage.get("completion_tokens") or deep_find(payload, ["output_tokens"]))
-    cached = as_int(usage.get("cached_input_tokens") or usage.get("cached_tokens"))
-    total = as_int(usage.get("total_tokens")) or (inp + out)
-    cost = usage.get("cost_total") or usage.get("cost") or deep_find(payload, ["cost_usd", "costTotal"])
-    session_id = str(deep_find(payload, ["session_id", "conversation_id"]) or "")
-    cwd = str(deep_find(payload, ["cwd", "workdir"]) or os.environ.get("PWD") or "")
-    message_id = str(deep_find(payload, ["message_id", "turn_id"]) or "")
-
-    # Best-effort: transcript_path / rollout JSONL
-    if total <= 0:
-        tpath = deep_find(payload, ["transcript_path", "rollout_path", "session_path"])
-        if tpath and Path(str(tpath)).is_file():
-            try:
-                lines = Path(str(tpath)).read_text(encoding="utf-8", errors="ignore").splitlines()
-                for line in reversed(lines[-200:]):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    u = deep_find(row, ["token_count", "last_token_usage", "usage"]) or {}
-                    if isinstance(u, dict) and (u.get("input_tokens") or u.get("total_tokens")):
-                        inp = as_int(u.get("input_tokens") or u.get("prompt_tokens"))
-                        out = as_int(u.get("output_tokens") or u.get("completion_tokens"))
-                        cached = as_int(u.get("cached_input_tokens"))
-                        total = as_int(u.get("total_tokens")) or (inp + out)
-                        if not model:
-                            tc = row.get("turn_context") if isinstance(row.get("turn_context"), dict) else {}
-                            model = tc.get("model") or deep_find(row, ["model"])
-                        break
-            except OSError:
-                pass
-
-    return {
-        "model": str(model or ""),
-        "inputTokens": inp,
-        "outputTokens": out,
-        "cachedInputTokens": cached,
-        "totalTokens": total,
-        "costTotal": float(cost) if cost is not None else None,
-        "session_id": session_id,
-        "cwd": cwd,
-        "message_id": message_id,
-        "harness": "codex",
-        "status": event_name,
-    }
-
-payload = parse_hook_payload(stdin_text)
-row = usage_from_payload(payload)
-# Drop null costTotal so pricer can estimate
-if row.get("costTotal") is None:
-    row.pop("costTotal", None)
-
-# Skip gracefully if no tokens at all
-if not row.get("totalTokens") and not row.get("inputTokens") and not row.get("outputTokens"):
-    if event_name in ("stop", "session_end", "SessionEnd", "Stop"):
-        try:
-            schedule_render(resolve_project(row.get("cwd")))
-        except Exception:
-            pass
-    sys.exit(0)
-
-result = append_dict(row)
-project = result.get("project") or resolve_project(row.get("cwd"))
-if event_name.lower().replace("-", "_") in ("stop", "session_end"):
-    schedule_render(project)
-sys.exit(0)
-PY
+exec python3 -m fsm_ledger.codex_hook_worker

@@ -134,8 +134,10 @@ PYTHONPATH=. python3 -m unittest discover -s tests -v
 
 ## Harness notes / phase-2 gaps
 
-- **Codex**: plugin under `harnesses/codex/`; trust prompt required; does not touch
-  brute/ponytail/context-mode.
+- **Codex**: plugin under `harnesses/codex/`; trust prompt required. Stop runs
+  asynchronously. SessionEnd only queues its payload; the next Stop drains it
+  from `~/.agents/status-matrices/_hook_pending/`. Existing
+  brute/ponytail/context-mode hooks are untouched.
 - **Claude**: Stop hook merged; transcript JSONL shapes vary — best-effort.
 - **Pi**: `message_end` extension shells to append.
 - **OpenCode**: phase-2 stub (`harnesses/opencode/`); enable hint file only.
