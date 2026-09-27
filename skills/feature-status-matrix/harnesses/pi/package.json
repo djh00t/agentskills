@@ -1,0 +1,9 @@
+{
+  "name": "fsm-ledger-pi",
+  "version": "0.1.0",
+  "description": "Append Pi message_end usage into the shared feature-status-matrix ledger",
+  "keywords": ["pi-package", "fsm-ledger"],
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}

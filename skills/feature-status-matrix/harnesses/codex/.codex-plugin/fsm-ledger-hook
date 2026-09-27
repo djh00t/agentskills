@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# fsm-ledger Codex hook — queue events; Codex runs Stop processing asynchronously.
+set -euo pipefail
+EVENT="${1:-stop}"
+QUEUE="${FSM_MATRICES_ROOT:-${HOME}/.agents/status-matrices}/_hook_pending"
+mkdir -p "$QUEUE"
+PENDING="$(mktemp "$QUEUE/.pending-XXXXXXXX")"
+trap 'rm -f "$PENDING"' EXIT
+printf '%s\n' "$EVENT" > "$PENDING"
+cat >> "$PENDING"
+mv "$PENDING" "$QUEUE/event-${PENDING##*/}"
+trap - EXIT
+# Codex always runs SessionEnd synchronously, so return after durable acceptance.
+if [[ "$EVENT" == session_end ]]; then
+  exit 0
+fi
+SKILL_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+# When copied into codex-marketplace/plugins/fsm-ledger, climb to skill root:
+if [[ ! -d "$SKILL_ROOT/fsm_ledger" ]]; then
+  SKILL_ROOT="$(cd "$(dirname "$0")/../../../../.." && pwd)"
+fi
+# Absolute fallback
+if [[ ! -d "$SKILL_ROOT/fsm_ledger" ]]; then
+  SKILL_ROOT="${HOME}/.agents/skills/feature-status-matrix"
+fi
+export PYTHONPATH="${SKILL_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m fsm_ledger.codex_hook_worker
