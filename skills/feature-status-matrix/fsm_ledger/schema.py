@@ -21,7 +21,8 @@ class UsageEvent:
     model: str = ""
     inputTokens: int = 0
     outputTokens: int = 0
-    cachedInputTokens: int = 0
+    cachedInputTokens: Optional[int] = None
+    cacheWriteInputTokens: Optional[int] = None
     totalTokens: int = 0
     costTotal: float = 0.0
     provider: str = ""
@@ -95,7 +96,12 @@ def normalize_event(raw: dict[str, Any]) -> UsageEvent:
 
     inp = _int("inputTokens", "input_tokens", "prompt_tokens")
     out = _int("outputTokens", "output_tokens", "completion_tokens")
-    cached = _int("cachedInputTokens", "cached_input_tokens", "cached_tokens")
+    cached = (
+        _int("cachedInputTokens", "cached_input_tokens", "cached_tokens")
+        if any(k in raw and raw[k] is not None for k in (
+            "cachedInputTokens", "cached_input_tokens", "cached_tokens"
+        )) else None
+    )
     total = _int("totalTokens", "total_tokens")
     if total <= 0:
         total = inp + out
@@ -106,6 +112,12 @@ def normalize_event(raw: dict[str, Any]) -> UsageEvent:
         inputTokens=inp,
         outputTokens=out,
         cachedInputTokens=cached,
+        cacheWriteInputTokens=(
+            _int("cacheWriteInputTokens", "cache_write_input_tokens", "cache_creation_input_tokens", "cacheWrite")
+            if any(k in raw and raw[k] is not None for k in (
+                "cacheWriteInputTokens", "cache_write_input_tokens", "cache_creation_input_tokens", "cacheWrite"
+            )) else None
+        ),
         totalTokens=total,
         costTotal=_float("costTotal", "cost_total", "usd_total", "cost"),
         provider=_str("provider"),

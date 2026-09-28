@@ -3,29 +3,34 @@
 Codex only loads hooks via plugins. This directory is a Codex plugin:
 
 - `.codex-plugin/hooks.json` — Stop + SessionEnd
-- `.codex-plugin/fsm-ledger-hook` — queues stdin JSON; async Stop drains and renders
+- `.codex-plugin/fsm-ledger-hook` — queue stdin JSON; async Stop drains the queue and renders
 
 ## Enable
 
 ```bash
 PYTHONPATH=~/.agents/skills/feature-status-matrix python3 -m fsm_ledger install --harnesses codex
+codex plugin add fsm-ledger@local
 ```
 
-That copies this plugin into `harnesses/codex-marketplace/plugins/fsm-ledger/` and appends a
-marked `[marketplaces.fsm-ledger-local]` + `[plugins."fsm-ledger@fsm-ledger-local"]` block to
-`~/.codex/config.toml` (backup: `config.toml.bak-fsm-YYYYMMDD`).
+The installer merges an entry into `~/.agents/plugins/marketplace.json` and
+copies the plugin to `~/plugins/fsm-ledger`. The Codex command installs it from
+the personal `local` marketplace. Restart Codex Desktop after installation.
 
-**Trust reminder:** Codex will prompt to trust the new hooks. Accept them. Existing
-brute / ponytail / context-mode hooks are not modified.
+**Trust reminder:** Enabling a plugin does not trust its hooks. Review and accept
+the Stop and SessionEnd hooks in Codex's trust prompt. Existing brute / ponytail /
+context-mode hooks are not modified.
 
-Stop runs asynchronously in Codex. SessionEnd always runs synchronously, so
-it only queues its payload. The next Stop drains pending events from
-`~/.agents/status-matrices/_hook_pending/`. The hook exits 0 without output
-after accepting the event.
-
-## Manual test
+## Verification
 
 ```bash
-echo '{"usage":{"input_tokens":10,"output_tokens":5},"model":"gpt-6-luna","cwd":"/Users/djh/work/src/github.com_local/djh00t/agent-brain"}' \
-  | ~/.agents/skills/feature-status-matrix/harnesses/codex/.codex-plugin/fsm-ledger-hook stop
+PYTHONPATH=~/.agents/skills/feature-status-matrix python3 -m unittest discover \
+  -s ~/.agents/skills/feature-status-matrix/tests
+codex plugin list
 ```
+
+Stop runs in Codex's background hook mode. SessionEnd drains synchronously.
+Both read per-response `token_usage_record` rows from the session rollout.
+Pending events are stored under `~/.agents/status-matrices/_hook_pending/` and
+survive a cancelled background hook or unreadable rollout. After a real Stop event, inspect
+`~/.agents/status-matrices/agent-brain/usage.jsonl`.
+Do not append fixture events to the live ledger.

@@ -18,7 +18,7 @@
           {
             "type": "command",
             "command": "$PLUGIN_ROOT/.codex-plugin/fsm-ledger-hook session_end",
-            "statusMessage": "fsm-ledger SessionEnd queue"
+            "statusMessage": "fsm-ledger SessionEnd render"
           }
         ]
       }

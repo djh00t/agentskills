@@ -8,19 +8,20 @@ import { join } from "node:path";
 
 const SKILL = join(homedir(), ".agents/skills/feature-status-matrix");
 
-function appendUsage(payload: Record<string, unknown>): void {
-  const child = spawn(
-    "python3",
-    ["-m", "fsm_ledger", "append", "--harness", "pi", "--render"],
-    {
-      env: { ...process.env, PYTHONPATH: SKILL },
-      stdio: ["pipe", "ignore", "ignore"],
-    },
-  );
-  child.stdin.write(JSON.stringify(payload));
-  child.stdin.end();
-  // fire-and-forget — never block the agent
-  child.on("error", () => {});
+function appendUsage(payload: Record<string, unknown>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "python3",
+      ["-m", "fsm_ledger", "append", "--harness", "pi", "--render"],
+      {
+        env: { ...process.env, PYTHONPATH: SKILL },
+        stdio: ["pipe", "ignore", "ignore"],
+      },
+    );
+    child.on("error", reject);
+    child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`append exited ${code}`)));
+    child.stdin.end(JSON.stringify(payload));
+  });
 }
 
 export default function fsmLedgerExtension(pi: ExtensionAPI): void {
@@ -33,31 +34,34 @@ export default function fsmLedgerExtension(pi: ExtensionAPI): void {
       const input = Number(usage.input || usage.inputTokens || 0);
       const output = Number(usage.output || usage.outputTokens || 0);
       const cached = Number(usage.cacheRead || usage.cachedInputTokens || 0);
+      const cacheWrite = Number(usage.cacheWrite || usage.cacheWriteInputTokens || 0);
       const costTotal =
         usage.cost?.total ?? usage.costTotal ?? usage.cost ?? undefined;
       const model =
         msg?.model
         ?? (ctx as any)?.model?.id
         ?? "";
+      const sessionId = String(ctx.sessionManager.getSessionId());
+      const messageId = String(msg?.id || msg?.uuid || "");
 
-      if (!input && !output && costTotal == null) return;
-
-      appendUsage({
+      await appendUsage({
         harness: "pi",
         model: String(model || ""),
-        inputTokens: input,
+        inputTokens: input + cached + cacheWrite,
         outputTokens: output,
-        cachedInputTokens: cached,
-        totalTokens: Number(usage.totalTokens || input + output),
+        cachedInputTokens: usage.cacheRead != null || usage.cachedInputTokens != null ? cached : undefined,
+        cacheWriteInputTokens: usage.cacheWrite != null || usage.cacheWriteInputTokens != null ? cacheWrite : undefined,
+        totalTokens: Number(usage.totalTokens || input + cached + cacheWrite + output),
         costTotal: costTotal != null ? Number(costTotal) : undefined,
-        message_id: String(msg?.id || msg?.uuid || ""),
-        session_id: String((ctx as any)?.sessionId || ""),
+        event_id: sessionId && messageId ? `pi:${sessionId}:${messageId}` : undefined,
+        session_id: sessionId,
+        ts: msg?.timestamp ? new Date(msg.timestamp).toISOString() : new Date().toISOString(),
         cwd: String((ctx as any)?.cwd || process.cwd()),
-        status: "message_end",
+        status: "response",
         provider: String((ctx as any)?.model?.provider || ""),
       });
-    } catch {
-      // never block
+    } catch (error) {
+      process.stderr.write(`fsm-ledger Pi capture failed: ${String(error)}\n`);
     }
   });
 }

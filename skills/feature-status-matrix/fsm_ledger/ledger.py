@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from .attribute import matrices_root, resolve_attribution
+from .attribute import UNKNOWN_PROJECT, _safe_project, matrices_root, resolve_attribution
 from .pricer import price_event
 from .schema import UsageEvent, normalize_event
 
@@ -29,7 +29,7 @@ def _log(msg: str) -> None:
 
 
 def usage_log_path(project: str) -> Path:
-    return matrices_root() / project / "usage.jsonl"
+    return matrices_root() / (_safe_project(project) or UNKNOWN_PROJECT) / "usage.jsonl"
 
 
 def _existing_ids(path: Path) -> set[str]:
@@ -77,7 +77,7 @@ def append_dict(raw: dict[str, Any], *, project: Optional[str] = None) -> dict[s
         # Only override WP if caller left default/empty — keep explicit UNALLOCATED
         if not raw.get("workPackageId") and not raw.get("work_package_id") and not raw.get("wp"):
             event.workPackageId = attr["workPackageId"]
-        proj = project or event.project or attr["project"]
+        proj = attr["project"]
         event.project = proj
 
         data = event.to_dict()

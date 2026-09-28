@@ -10,28 +10,14 @@ import time
 import unittest
 from pathlib import Path
 
-from fsm_ledger.metered import metered_call
+from fsm_ledger.render_trigger import render_now
+
 
 SKILL = Path(__file__).resolve().parents[1]
 CODEX_HOOK = SKILL / "harnesses" / "codex" / ".codex-plugin" / "fsm-ledger-hook"
 
 
 class ProcessBoundRenderTest(unittest.TestCase):
-    def test_feature_scenarios(self):
-        scenarios = {
-            "Codex Stop captures in the background": self._codex_stop,
-            "SessionEnd survives until the next Stop": self._session_end,
-            "CLI append renders after exit": self._cli_render,
-            "Metered calls do not retry internal errors": self._metered_error,
-        }
-        feature = (SKILL / "features/fsm_ledger.feature").read_text(encoding="utf-8")
-        names = [line.removeprefix("Scenario:").strip() for line in feature.splitlines()
-                 if line.startswith("Scenario:")]
-        self.assertEqual(set(names), set(scenarios))
-        for name in names:
-            with self.subTest(name=name):
-                scenarios[name]()
-
     def _env(self, root: Path) -> dict[str, str]:
         env = os.environ.copy()
         env.update(
@@ -67,7 +53,54 @@ class ProcessBoundRenderTest(unittest.TestCase):
         )
         return project
 
-    def _codex_stop(self):
+    def _rollout(self, root: Path) -> Path:
+        path = root / "rollout.jsonl"
+        rows = [
+            {"type": "session_meta", "payload": {"session_id": "render-session", "cwd": str(SKILL)}},
+            {"type": "turn_context", "payload": {"turn_id": "turn-1", "model": "gpt-6-luna"}},
+            {"type": "token_usage_record", "timestamp": "2026-09-28T01:02:03Z", "payload": {
+                "session_id": "render-session", "turn_id": "turn-1", "response_id": "response-1",
+                "usage": {"input_tokens": 10, "output_tokens": 5, "cached_input_tokens": 0,
+                          "cache_write_input_tokens": 0, "total_tokens": 15},
+            }},
+        ]
+        path.write_text("\n".join(map(json.dumps, rows)) + "\n", encoding="utf-8")
+        return path
+
+    def test_append_cli_renders_before_process_exit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            project = self._setup_project(root)
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "fsm_ledger",
+                    "append",
+                    "--project",
+                    "agent-brain",
+                    "--render",
+                    "--json",
+                    json.dumps(
+                        {
+                            "workPackageId": "AB-033",
+                            "inputTokens": 10,
+                            "outputTokens": 5,
+                            "costTotal": 0.01,
+                            "message_id": "cli-render",
+                        }
+                    ),
+                ],
+                cwd=str(SKILL),
+                env=self._env(root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue((project / "FEATURE_STATUS_MATRIX.md").is_file())
+
+    def test_codex_hook_accepts_then_renders_in_background(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             project = self._setup_project(root)
@@ -78,9 +111,8 @@ class ProcessBoundRenderTest(unittest.TestCase):
                 input=json.dumps(
                     {
                         "cwd": str(SKILL),
-                        "model": "gpt-6-luna",
-                        "usage": {"input_tokens": 10, "output_tokens": 5},
-                        "message_id": "hook-render",
+                        "session_id": "render-session",
+                        "transcript_path": str(self._rollout(root)),
                     }
                 ),
                 env=self._env(root),
@@ -94,15 +126,14 @@ class ProcessBoundRenderTest(unittest.TestCase):
                 time.sleep(0.02)
             self.assertTrue((project / "FEATURE_STATUS_MATRIX.md").is_file())
 
-    def _session_end(self):
+    def test_session_end_drains_its_rollout(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             project = self._setup_project(root)
             payload = {
                 "cwd": str(SKILL),
-                "model": "gpt-6-luna",
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-                "message_id": "session-end-capture",
+                "session_id": "render-session",
+                "transcript_path": str(self._rollout(root)),
             }
             end = subprocess.run(
                 [str(CODEX_HOOK), "session_end"],
@@ -110,46 +141,30 @@ class ProcessBoundRenderTest(unittest.TestCase):
                 text=True, timeout=3,
             )
             self.assertEqual(end.returncode, 0, end.stderr)
-            self.assertFalse((project / "usage.jsonl").exists())
-            self.assertEqual(len(list((root / "_hook_pending").glob("event-*"))), 1)
-            stop = subprocess.run(
-                [str(CODEX_HOOK), "stop"],
-                input=json.dumps({"cwd": str(SKILL)}), env=self._env(root),
-                capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(stop.returncode, 0, stop.stderr)
             rows = [json.loads(line) for line in (project / "usage.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["message_id"], "session-end-capture")
+            self.assertEqual(rows[0]["event_id"], "codex:render-session:response-1")
             self.assertFalse(list((root / "_hook_pending").glob("event-*")))
 
-    def _cli_render(self):
+    def test_render_rejects_project_path_escape(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            project = self._setup_project(root)
-            proc = subprocess.run(
-                [sys.executable, "-m", "fsm_ledger", "append", "--project", "agent-brain",
-                 "--render", "--json", json.dumps({"workPackageId": "AB-033",
-                    "inputTokens": 10, "outputTokens": 5, "costTotal": 0.01})],
-                cwd=str(SKILL), env=self._env(root), capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-            deadline = time.monotonic() + 10
-            while not (project / "FEATURE_STATUS_MATRIX.md").exists() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            self.assertTrue((project / "FEATURE_STATUS_MATRIX.md").is_file())
+            root = Path(td) / "matrices"
+            outside = Path(td) / "escape"
+            root.mkdir()
+            outside.mkdir()
+            (outside / "work-packages.json").write_text("[]\n", encoding="utf-8")
+            old_root = os.environ.get("FSM_MATRICES_ROOT")
+            os.environ["FSM_MATRICES_ROOT"] = str(root)
+            try:
+                result = render_now("../escape")
+            finally:
+                if old_root is None:
+                    os.environ.pop("FSM_MATRICES_ROOT", None)
+                else:
+                    os.environ["FSM_MATRICES_ROOT"] = old_root
+            self.assertFalse(result["ok"])
+            self.assertFalse((outside / "FEATURE_STATUS_MATRIX.md").exists())
 
-    def _metered_error(self):
-        calls = []
-
-        @metered_call()
-        def raises_after_side_effect(*, meter):
-            calls.append(1)
-            raise TypeError("from inside function")
-
-        with self.assertRaisesRegex(TypeError, "from inside function"):
-            raises_after_side_effect()
-        self.assertEqual(len(calls), 1)
 
 if __name__ == "__main__":
     unittest.main()

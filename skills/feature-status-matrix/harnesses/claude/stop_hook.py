@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Stop hook: parse session transcript JSONL for usage; dedupe by message UUID."""
+"""Record one usage row per Claude assistant API response at Stop."""
 from __future__ import annotations
 
 import json
@@ -14,23 +14,6 @@ if str(SKILL) not in sys.path:
 from fsm_ledger.attribute import resolve_project
 from fsm_ledger.ledger import append_dict
 from fsm_ledger.render_trigger import schedule_render
-
-
-def deep_find(data, candidates):
-    wanted = set(candidates)
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k in wanted:
-                return v
-            found = deep_find(v, wanted)
-            if found is not None:
-                return found
-    elif isinstance(data, list):
-        for v in data:
-            found = deep_find(v, wanted)
-            if found is not None:
-                return found
-    return None
 
 
 def parse_stdin() -> dict:
@@ -48,82 +31,62 @@ def iter_transcript(path: Path):
     if not path.is_file():
         return
     try:
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        with path.open(encoding="utf-8", errors="ignore") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue
     except OSError:
         return
 
 
 def main() -> int:
     payload = parse_stdin()
-    cwd = str(deep_find(payload, ["cwd"]) or os.environ.get("PWD") or "")
-    session_id = str(deep_find(payload, ["session_id"]) or "")
-    transcript = deep_find(payload, ["transcript_path", "transcriptPath"])
-    appended = 0
-
-    # Prefer direct usage on the Stop payload when present
-    usage = deep_find(payload, ["usage", "token_usage"]) or {}
-    if isinstance(usage, dict) and (usage.get("input_tokens") or usage.get("output_tokens")):
-        row = {
-            "harness": "claude",
-            "model": str(deep_find(payload, ["model"]) or ""),
-            "inputTokens": int(usage.get("input_tokens") or 0),
-            "outputTokens": int(usage.get("output_tokens") or 0),
-            "cachedInputTokens": int(usage.get("cache_read_input_tokens") or usage.get("cached_input_tokens") or 0),
-            "session_id": session_id,
-            "cwd": cwd,
-            "message_id": str(deep_find(payload, ["message_id", "uuid"]) or ""),
-            "status": "stop",
-        }
-        cost = usage.get("cost") or deep_find(payload, ["costTotal", "total_cost_usd"])
-        if cost is not None:
-            row["costTotal"] = float(cost)
-        append_dict(row)
-        appended += 1
-
-    # Scan transcript JSONL — assistant messages with usage; dedupe by uuid
-    if transcript:
+    cwd = str(payload.get("cwd") or os.environ.get("PWD") or "")
+    session_id = str(payload.get("session_id") or "")
+    transcript = payload.get("transcript_path") or payload.get("transcriptPath")
+    if not transcript or not Path(str(transcript)).is_file():
+        print("fsm-ledger Claude capture failed: transcript unavailable", file=sys.stderr)
+    else:
+        latest: dict[str, dict] = {}
         for row in iter_transcript(Path(str(transcript))):
-            role = str(row.get("role") or row.get("type") or "").lower()
-            if role not in ("assistant", "message"):
-                # Claude Code JSONL often uses type=assistant
-                if str(row.get("type") or "").lower() != "assistant":
-                    continue
-            msg_id = str(row.get("uuid") or row.get("id") or row.get("message_id") or "")
-            usage = row.get("usage") or deep_find(row, ["usage"]) or {}
-            if not isinstance(usage, dict):
+            if row.get("type") != "assistant":
                 continue
-            inp = int(usage.get("input_tokens") or 0)
+            message = row.get("message") or {}
+            usage = message.get("usage") or row.get("usage") or {}
+            msg_id = message.get("id") or row.get("message_id") or row.get("uuid")
+            if msg_id and isinstance(usage, dict) and any(
+                key in usage for key in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+            ):
+                latest[str(msg_id)] = row
+        for msg_id, row in latest.items():
+            message = row.get("message") or {}
+            usage = message.get("usage") or row.get("usage") or {}
+            read = int(usage.get("cache_read_input_tokens") or usage.get("cached_input_tokens") or 0)
+            write = int(usage.get("cache_creation_input_tokens") or 0)
+            inp = int(usage.get("input_tokens") or 0) + read + write
             out = int(usage.get("output_tokens") or 0)
-            if not inp and not out:
-                continue
             event = {
-                "harness": "claude",
-                "model": str(deep_find(row, ["model"]) or ""),
-                "inputTokens": inp,
-                "outputTokens": out,
-                "cachedInputTokens": int(
-                    usage.get("cache_read_input_tokens") or usage.get("cached_input_tokens") or 0
-                ),
-                "session_id": session_id,
-                "cwd": cwd,
-                "message_id": msg_id,
-                "status": "transcript",
+                "event_id": f"claude:{session_id or Path(str(transcript)).stem}:{msg_id}",
+                "harness": "claude", "model": str(message.get("model") or row.get("model") or ""),
+                "inputTokens": inp, "outputTokens": out,
+                "session_id": session_id, "cwd": cwd,
+                "ts": row.get("timestamp"), "status": "response",
             }
-            cost = usage.get("cost") or deep_find(row, ["costTotal"])
+            if "cache_read_input_tokens" in usage or "cached_input_tokens" in usage:
+                event["cachedInputTokens"] = read
+            if "cache_creation_input_tokens" in usage:
+                event["cacheWriteInputTokens"] = write
+            cost = usage.get("cost") or message.get("cost")
             if cost is not None:
-                try:
-                    event["costTotal"] = float(cost)
-                except (TypeError, ValueError):
-                    pass
-            append_dict(event)
-            appended += 1
+                event["costTotal"] = cost
+            result = append_dict(event)
+            if not result.get("ok"):
+                print(f"fsm-ledger Claude capture failed: {result.get('error')}", file=sys.stderr)
 
     try:
         schedule_render(resolve_project(cwd))
