@@ -39,8 +39,9 @@ Compact auto-detects the moved area from `status-matrix-state.json` deltas when
 1. **Summary first**: one row per Area, with emoji status, % progress (average of its
    items' progress), and Budget/Actual $ rollups, plus a **TOTAL** row.
 2. **Detailed matrix second**, grouped under the *same* Area headings used in the
-   summary. Every item gets its own row: ID, size/wave (or equivalent), emoji status,
-   %, Budget, Actual, Delta (`actual - budget`, signed), and a Note.
+   summary. Every item gets its own row: ID, Name/description, size/wave (or equivalent),
+   emoji status, %, Budget, Actual, Delta (`actual - budget`, signed), and a Note.
+   Escape Markdown table-breaking pipes and newlines in Name/description values.
 3. **Emoji legend** (fixed): `🟢`/`✅` done · `🟡` partial · `🔴` gap · `⚪` not started/blocked
    · `🔵` in progress · `🟣` blocked-for-human · `⚠️` risk.
 4. **% progress**: `ACCEPTED=100, DELIVERED=70, IN_PROGRESS=50, CLAIMED=30, REJECTED=40, READY=0, BLOCKED=0`.
@@ -48,15 +49,22 @@ Compact auto-detects the moved area from `status-matrix-state.json` deltas when
 6. Budget is a **per-size estimate** (defaults `S=$2, M=$5, L=$15`).
 7. **UNALLOCATED** is a valid workPackageId — shown as a synthetic row when present in
    the usage log but not in packages. Subscription/plan usage shows as `plan` in Actual.
+8. Missing cost telemetry shows `—`, not measured zero. Pricing-derived cost is
+   prefixed `~`; incomplete aggregates are marked partial/unknown. Do not treat
+   `~` or `plan` as provider-reported dollars.
 
 ## fsm-ledger (shared usage capture)
 
 Package: `~/.agents/skills/feature-status-matrix/fsm_ledger/` (stdlib + PyYAML).
 
 ```bash
-# Install harness hooks (backups: *.bak-fsm-YYYYMMDD)
+# Register harnesses (backups: *.bak-fsm-YYYYMMDD)
 PYTHONPATH=~/.agents/skills/feature-status-matrix \
   python3 -m fsm_ledger install --harnesses codex,claude,pi
+
+# Codex: install the registered local plugin, restart the app, then review/trust
+# its Stop and SessionEnd hooks in Codex's trust prompt.
+codex plugin add fsm-ledger@local
 
 # Bind active WP for attribution
 python3 -m fsm_ledger bind-wp --project agent-brain --wp AB-033
@@ -80,11 +88,20 @@ Wrapper: `tools/fsm-ledger` (same CLI).
 
 Attribution order: `FSM_WP`/`FEATURE_WP` → `active-wp.json` → branch/subject heuristic
 (`feat(enrich)`, `AB-033`, …) → `UNALLOCATED`.
+Project attribution uses configured roots or the Git remote; events from an
+unmatched workspace go to `_unattributed/usage.jsonl`, not another project's
+matrix. `UNALLOCATED` is a work-package id within a resolved project.
 
 Pricing: prefer provider-reported `costTotal`; else estimate from
 `agent-brain/config/inference_pricing.yaml` (never hard-coded). Soft-imports
 `pipelines.common.pricing.loader.estimate_cost` when on `PYTHONPATH`.
 `billing_mode=subscription` → `costTotal=0` + plan flag.
+
+Harness rows represent individual API responses. `inputTokens` is total input,
+including cached reads and cache writes; `cachedInputTokens` and
+`cacheWriteInputTokens` retain those components separately. `ts` is the response
+timestamp and `model` is the model used. An absent cache-write field means the
+source did not report it, not zero. Existing usage rows are not backfilled.
 
 ### Pipeline metered() helper
 
@@ -129,17 +146,23 @@ python3 tools/render_matrix.py \
 
 ```bash
 cd ~/.agents/skills/feature-status-matrix
-make check
+PYTHONPATH=. python3 -m unittest discover -s tests -v
 ```
 
 ## Harness notes / phase-2 gaps
 
-- **Codex**: plugin under `harnesses/codex/`; trust prompt required. Stop runs
-  asynchronously. SessionEnd only queues its payload; the next Stop drains it
-  from `~/.agents/status-matrices/_hook_pending/`. Existing
-  brute/ponytail/context-mode hooks are untouched.
-- **Claude**: Stop hook merged; transcript JSONL shapes vary — best-effort.
-- **Pi**: `message_end` extension shells to append.
+- **Codex**: installer registers the plugin in the personal local marketplace;
+  `codex plugin add fsm-ledger@local` installs it. Restart Codex and review/trust
+  its Stop and SessionEnd hooks. Stop runs asynchronously; SessionEnd drains its
+  rollout synchronously. Both read per-response `token_usage_record` entries;
+  unreadable rollouts remain queued under `~/.agents/status-matrices/_hook_pending/`.
+  Enabling a plugin alone does
+  not trust hooks.
+  Existing brute/ponytail/context-mode hooks are untouched.
+- **Claude**: Stop scans transcript assistant messages and keeps the final usage
+  snapshot per API message ID; a live Claude run is still needed to confirm its
+  installed transcript format.
+- **Pi**: `message_end` extension records the message's usage and timestamp.
 - **OpenCode**: phase-2 stub (`harnesses/opencode/`); enable hint file only.
 
 ## Extending to other coordination layouts

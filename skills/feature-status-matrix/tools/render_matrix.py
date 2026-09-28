@@ -42,8 +42,12 @@ UNALLOCATED = "UNALLOCATED"
 @dataclass
 class UsageAgg:
     total_cost: float = 0.0
+    estimated_cost: float = 0.0
     total_tokens: int = 0
     attempts: int = 0
+    estimated_attempts: int = 0
+    measured_attempts: int = 0
+    unknown_attempts: int = 0
     last_status: str = ""
     plan_events: int = 0
 
@@ -64,7 +68,20 @@ def aggregate_usage(jsonl_text: str) -> dict[str, UsageAgg]:
         if not wp_id:
             continue
         agg = out.setdefault(wp_id, UsageAgg())
-        agg.total_cost += float(row.get("costTotal", 0.0) or 0.0)
+        cost = float(row.get("costTotal", 0.0) or 0.0)
+        has_reported_cost = "costTotal" in row and row.get("costTotal") is not None
+        is_plan = row.get("cost_is_plan") or str(row.get("billing_mode") or "").lower() == "subscription"
+        if row.get("cost_estimated"):
+            agg.total_cost += cost
+            agg.estimated_cost += cost
+            agg.estimated_attempts += 1
+        elif is_plan:
+            pass
+        elif has_reported_cost:
+            agg.total_cost += cost
+            agg.measured_attempts += 1
+        else:
+            agg.unknown_attempts += 1
         agg.total_tokens += int(row.get("totalTokens", 0) or 0)
         agg.attempts += 1
         agg.last_status = row.get("status", agg.last_status)
@@ -103,12 +120,59 @@ def _emoji(state: str) -> str:
     return STATUS_EMOJI.get(state, "⚪")
 
 
-def _fmt_actual(u: UsageAgg) -> str:
+def _fmt_actual(u: UsageAgg, reported: bool = True) -> str:
+    if not reported:
+        return "—"
     if u.plan_events and u.total_cost == 0.0 and u.attempts == u.plan_events:
         return "plan"
-    if u.plan_events and u.total_cost > 0:
-        return f"${u.total_cost:.2f}+plan"
-    return f"${u.total_cost:.2f}"
+    parts: list[str] = []
+    measured_cost = u.total_cost - u.estimated_cost
+    if u.measured_attempts:
+        parts.append(f"${measured_cost:.2f}")
+    if u.estimated_attempts:
+        parts.append(f"~${u.estimated_cost:.2f}")
+    if u.plan_events:
+        parts.append("plan")
+    if u.unknown_attempts:
+        parts.append("unknown")
+    return "+".join(parts) or "—"
+
+
+def _fmt_delta(u: UsageAgg, budget: float, reported: bool = True) -> str:
+    if not reported or u.unknown_attempts or u.plan_events:
+        return "—"
+    prefix = "~" if u.estimated_attempts else ""
+    return f"{prefix}${u.total_cost - budget:+.2f}"
+
+
+def _aggregate_usage(pkgs: list[dict[str, Any]], usage: dict[str, UsageAgg]) -> tuple[UsageAgg, int]:
+    aggregate = UsageAgg()
+    reported = 0
+    for p in pkgs:
+        u = usage.get(p["id"])
+        if u is None:
+            continue
+        reported += 1
+        aggregate.total_cost += u.total_cost
+        aggregate.estimated_cost += u.estimated_cost
+        aggregate.total_tokens += u.total_tokens
+        aggregate.attempts += u.attempts
+        aggregate.estimated_attempts += u.estimated_attempts
+        aggregate.measured_attempts += u.measured_attempts
+        aggregate.unknown_attempts += u.unknown_attempts
+        aggregate.plan_events += u.plan_events
+    return aggregate, reported
+
+
+def _actual_for_package(p: dict[str, Any], usage: dict[str, UsageAgg]) -> str:
+    return _fmt_actual(usage.get(p["id"], UsageAgg()), p["id"] in usage)
+
+
+def _prior_actual(prior: dict[str, Any]) -> str:
+    if "actual" in prior:
+        return str(prior["actual"])
+    cost = float(prior.get("cost") or 0.0)
+    return f"${cost:.2f}" if cost else "legacy"
 
 
 def ensure_unallocated_package(
@@ -134,6 +198,8 @@ def ensure_unallocated_package(
 
 def _changed_note(p: dict[str, Any], prior_state: dict[str, Any], u: UsageAgg) -> str:
     note_parts: list[str] = []
+    if p.get("note"):
+        note_parts.append(str(p["note"]))
     prior = prior_state.get(p["id"])
     if prior and prior.get("status") and prior.get("status") != p["state"]:
         note_parts.append(f"changed: {prior['status']}\u2192{p['state']}")
@@ -144,6 +210,10 @@ def _changed_note(p: dict[str, Any], prior_state: dict[str, Any], u: UsageAgg) -
     return "; ".join(note_parts)
 
 
+def _markdown_cell(value: Any) -> str:
+    return str(value or "-").replace("\r\n", "<br>").replace("\r", "<br>").replace("\n", "<br>").replace("|", "\\|")
+
+
 def _detail_rows(
     pkgs: list[dict[str, Any]],
     usage: dict[str, UsageAgg],
@@ -151,18 +221,18 @@ def _detail_rows(
     prior_state: dict[str, Any],
 ) -> list[str]:
     lines = [
-        "| WP | Wave | Size | Status | % | Budget | Actual | Δ | Note |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| WP | Name/description | Wave | Size | Status | % | Budget | Actual | Δ | Note |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for p in sorted(pkgs, key=lambda x: x["id"]):
+        reported = p["id"] in usage
         u = usage.get(p["id"], UsageAgg())
         size = str(p.get("size") or "-")
         budget = 0.0 if size == "-" else budget_for_size(size, budget_policy)
-        delta = u.total_cost - budget
         note = _changed_note(p, prior_state, u)
         lines.append(
-            f"| {p['id']} | {p['wave']} | {p['size']} | {_emoji(p['state'])} | {_pct(p['state'])}% | "
-            f"${budget:.2f} | {_fmt_actual(u)} | ${delta:+.2f} | {note} |"
+            f"| {p['id']} | {_markdown_cell(p.get('title'))} | {p['wave']} | {p['size']} | {_emoji(p['state'])} | {_pct(p['state'])}% | "
+            f"${budget:.2f} | {_fmt_actual(u, reported)} | {_fmt_delta(u, budget, reported)} | {_markdown_cell(note)} |"
         )
     return lines
 
@@ -188,14 +258,24 @@ def _summary_lines(
             0.0 if str(p.get("size") or "-") == "-" else budget_for_size(p["size"], budget_policy)
             for p in pkgs
         )
-        area_actual = sum(usage.get(p["id"], UsageAgg()).total_cost for p in pkgs)
+        area_usage, reported = _aggregate_usage(pkgs, usage)
+        area_actual = area_usage.total_cost
         grand_budget += area_budget
         grand_actual += area_actual
         emoji = "✅🟢" if avg_pct >= 100 else ("🟡" if avg_pct > 0 else "⚪")
         if any(p["state"] in ("IN_PROGRESS", "CLAIMED") for p in pkgs) and avg_pct < 100:
             emoji = "🔵"
-        lines.append(f"| {area} | {emoji} | {avg_pct:.0f}% | ${area_budget:.2f} | ${area_actual:.2f} |")
-    lines.append(f"| **TOTAL** | | | **${grand_budget:.2f}** | **${grand_actual:.2f}** |")
+        actual = _fmt_actual(area_usage, reported > 0)
+        if 0 < reported < len(pkgs):
+            actual = f"partial {actual}"
+        lines.append(f"| {area} | {emoji} | {avg_pct:.0f}% | ${area_budget:.2f} | {actual} |")
+    total_usage, total_reported = _aggregate_usage(
+        [p for pkgs in areas.values() for p in pkgs], usage
+    )
+    total_actual = _fmt_actual(total_usage, total_reported > 0)
+    if 0 < total_reported < sum(len(pkgs) for pkgs in areas.values()):
+        total_actual = f"partial {total_actual}"
+    lines.append(f"| **TOTAL** | | | **${grand_budget:.2f}** | **{total_actual}** |")
     return lines, grand_budget, grand_actual
 
 
@@ -205,14 +285,20 @@ def detect_changed_areas(
     usage: dict[str, UsageAgg],
 ) -> list[str]:
     changed: set[str] = set()
+    missing_ids = [p["id"] for p in packages if p["id"] not in prior_state]
+    new_package_ids = set(missing_ids) if prior_state else set()
     for p in packages:
         prior = prior_state.get(p["id"]) or {}
+        if not prior:
+            if p["id"] in new_package_ids:
+                changed.add(p["theme"])
+            continue
         if prior.get("status") and prior.get("status") != p["state"]:
             changed.add(p["theme"])
             continue
-        prior_cost = float(prior.get("cost") or 0.0)
-        cur_cost = usage.get(p["id"], UsageAgg()).total_cost
-        if abs(cur_cost - prior_cost) > 1e-9:
+        legacy_missing = "actual" not in prior and not float(prior.get("cost") or 0.0) and p["id"] not in usage
+        changed_actual = not legacy_missing and _prior_actual(prior) != _actual_for_package(p, usage)
+        if changed_actual:
             changed.add(p["theme"])
     return sorted(changed)
 
@@ -258,17 +344,25 @@ def render_markdown(
         # Delta section
         lines += ["### Delta", ""]
         delta_lines: list[str] = []
+        missing_ids = [p["id"] for p in packages if p["id"] not in prior_state]
+        new_package_ids = set(missing_ids) if prior_state else set()
         for p in packages:
             prior = prior_state.get(p["id"]) or {}
+            if not prior:
+                if p["id"] in new_package_ids:
+                    delta_lines.append(f"- {p['id']} · new package")
+                continue
             u = usage.get(p["id"], UsageAgg())
             status_changed = prior.get("status") and prior.get("status") != p["state"]
-            cost_changed = abs(float(prior.get("cost") or 0.0) - u.total_cost) > 1e-9
-            if status_changed or cost_changed:
+            actual = _actual_for_package(p, usage)
+            legacy_missing = "actual" not in prior and not float(prior.get("cost") or 0.0) and p["id"] not in usage
+            actual_changed = not legacy_missing and _prior_actual(prior) != actual
+            if status_changed or actual_changed:
                 parts = [p["id"]]
                 if status_changed:
                     parts.append(f"{prior.get('status')}→{p['state']}")
-                if cost_changed:
-                    parts.append(f"cost ${float(prior.get('cost') or 0.0):.2f}→${u.total_cost:.2f}")
+                if actual_changed:
+                    parts.append(f"actual {_prior_actual(prior)}→{actual}")
                 delta_lines.append("- " + " · ".join(parts))
         if not delta_lines:
             lines.append("_No changes since last snapshot._")
@@ -325,7 +419,7 @@ def compute_coordination_state(pack_root: Path) -> list[dict[str, Any]]:
 
     return [
         {"id": p["id"], "theme": p["theme"], "wave": p["wave"], "size": p["size"],
-         "title": p["title"], "state": state_for(p)}
+         "title": p["title"], "state": state_for(p), "note": p.get("note", "")}
         for p in packages
     ]
 
@@ -346,6 +440,7 @@ def load_packages_json(path: Path) -> list[dict[str, Any]]:
                 "size": p.get("size", "M"),
                 "title": p.get("title", ""),
                 "state": str(p.get("state") or p.get("status") or "READY").upper(),
+                "note": p.get("note", ""),
             }
         )
     return out
@@ -407,7 +502,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     if state_path:
         packages_with_ua = ensure_unallocated_package(packages, usage)
         new_state = {
-            p["id"]: {"status": p["state"], "cost": usage.get(p["id"], UsageAgg()).total_cost}
+            p["id"]: {
+                "status": p["state"],
+                "cost": usage.get(p["id"], UsageAgg()).total_cost,
+                "actual": _actual_for_package(p, usage),
+            }
             for p in packages_with_ua
         }
         save_state(state_path, new_state)

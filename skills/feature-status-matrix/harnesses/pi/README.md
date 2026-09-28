@@ -14,3 +14,5 @@ PYTHONPATH=~/.agents/skills/feature-status-matrix python3 -m fsm_ledger install 
 ```
 
 Adds the package path to `~/.pi/agent/settings.json` `packages` array.
+Each `message_end` records model, timestamp, total input, output, cache reads,
+and cache writes for that API response.

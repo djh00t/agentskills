@@ -12,12 +12,20 @@ from typing import Any, Optional
 from .schema import UNALLOCATED
 
 STATUS_MATRICES_ROOT = Path.home() / ".agents" / "status-matrices"
+UNKNOWN_PROJECT = "_unattributed"
+_PROJECT_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 
 
 def matrices_root() -> Path:
     env = os.environ.get("FSM_MATRICES_ROOT")
     return Path(env).expanduser() if env else STATUS_MATRICES_ROOT
+
+
+def _safe_project(value: Any) -> Optional[str]:
+    """Return a filesystem-safe project slug, or None for empty/invalid input."""
+    text = str(value).strip() if value is not None else ""
+    return text if _PROJECT_SLUG.fullmatch(text) else None
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -40,7 +48,8 @@ def list_projects() -> list[str]:
 
 
 def load_project_config(project: str) -> dict[str, Any]:
-    return _read_json(matrices_root() / project / "project.json")
+    safe = _safe_project(project)
+    return _read_json(matrices_root() / safe / "project.json") if safe else {}
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -57,15 +66,15 @@ def _git(cwd: Path, *args: str) -> str:
         return ""
 
 
-def resolve_project(cwd: Optional[str] = None, hint: Optional[str] = None) -> str:
-    """Resolve project id from hint, cwd roots, git remote, or basename heuristic."""
-    if hint:
-        return hint
-    env = os.environ.get("FSM_PROJECT") or os.environ.get("FEATURE_PROJECT")
-    if env:
-        return env.strip()
-
-    cwd_path = Path(cwd or os.environ.get("PWD") or os.getcwd()).resolve()
+def _project_from_cwd(cwd: Optional[str]) -> tuple[Optional[str], bool]:
+    """Resolve a project from configured roots or its git remote."""
+    try:
+        raw_cwd = cwd if cwd is not None and str(cwd).strip() else os.environ.get("PWD") or os.getcwd()
+        cwd_path = Path(raw_cwd).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return None, False
+    if not cwd_path.exists():
+        return None, False
 
     # 1) cwd under roots in project.json
     root = matrices_root()
@@ -76,7 +85,7 @@ def resolve_project(cwd: Optional[str] = None, hint: Optional[str] = None) -> st
                 try:
                     rp = Path(r).expanduser().resolve()
                     if cwd_path == rp or rp in cwd_path.parents:
-                        return str(cfg.get("id") or proj_dir.name)
+                        return _safe_project(cfg.get("id")) or _safe_project(proj_dir.name), True
                 except OSError:
                     continue
             # also: cwd path contains project id as segment
@@ -84,23 +93,28 @@ def resolve_project(cwd: Optional[str] = None, hint: Optional[str] = None) -> st
             if remote_contains:
                 remote = _git(cwd_path, "remote", "get-url", "origin")
                 if remote_contains in remote:
-                    return str(cfg.get("id") or proj_dir.name)
+                    return _safe_project(cfg.get("id")) or _safe_project(proj_dir.name), True
 
-    # 2) git remote match without project.json
-    remote = _git(cwd_path, "remote", "get-url", "origin")
-    if "agent-brain" in remote:
-        return "agent-brain"
+    return None, True
 
-    # 3) basename heuristic
-    name = cwd_path.name
-    if name in ("agent-brain", "agent-brain-poc"):
-        return "agent-brain"
-    # walk up a few levels
-    for parent in list(cwd_path.parents)[:4]:
-        if parent.name in ("agent-brain", "agent-brain-poc"):
-            return "agent-brain"
 
-    return "agent-brain"  # safe default for this user's primary matrix
+def resolve_project(cwd: Optional[str] = None, hint: Optional[str] = None) -> str:
+    """Resolve project, rejecting a hint that conflicts with a known cwd."""
+    detected, cwd_available = _project_from_cwd(cwd)
+    env = os.environ.get("FSM_PROJECT") or os.environ.get("FEATURE_PROJECT")
+    candidate = hint if hint is not None and str(hint).strip() else env
+    if candidate is not None and str(candidate).strip():
+        hinted = _safe_project(candidate)
+        if detected:
+            return detected if hinted == detected else UNKNOWN_PROJECT
+        if cwd_available:
+            return UNKNOWN_PROJECT
+        return hinted or UNKNOWN_PROJECT
+    if detected:
+        return detected
+
+    # Unknown global events must remain auditable without contaminating a project.
+    return UNKNOWN_PROJECT
 
 
 def _wp_from_branch_or_subject(text: str) -> Optional[str]:
@@ -144,7 +158,7 @@ def resolve_work_package(
         if val and val.strip():
             return val.strip()
 
-    proj = project or resolve_project(cwd)
+    proj = resolve_project(cwd, hint=project) if project is not None else resolve_project(cwd)
     cwd_path = Path(cwd or os.environ.get("PWD") or os.getcwd()).resolve()
 
     # 2) active-wp.json
@@ -170,7 +184,7 @@ def resolve_work_package(
 
 def bind_active_wp(project: str, wp: str) -> Path:
     """Write active-wp.json for a project."""
-    path = matrices_root() / project / "active-wp.json"
+    path = matrices_root() / (_safe_project(project) or UNKNOWN_PROJECT) / "active-wp.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"workPackageId": wp, "project": project}, indent=2) + "\n",
@@ -185,6 +199,6 @@ def resolve_attribution(
     project: Optional[str] = None,
     wp: Optional[str] = None,
 ) -> dict[str, str]:
-    proj = project or resolve_project(cwd)
+    proj = resolve_project(cwd, hint=project) if project is not None else resolve_project(cwd)
     work = resolve_work_package(cwd=cwd, project=proj, explicit=wp)
     return {"project": proj, "workPackageId": work}

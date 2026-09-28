@@ -1,5 +1,5 @@
 \
-"""Render FEATURE_STATUS_MATRIX.md without blocking short-lived callers."""
+"""Render FEATURE_STATUS_MATRIX.md after usage capture without raising on failure."""
 from __future__ import annotations
 
 import os
@@ -9,14 +9,14 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from .attribute import matrices_root
+from .attribute import UNKNOWN_PROJECT, _safe_project, matrices_root
 from .ledger import _log
 
 _SKILL_ROOT = Path(__file__).resolve().parents[1]
 _RENDER_SCRIPT = _SKILL_ROOT / "tools" / "render_matrix.py"
 
 def _project_paths(project: str) -> dict[str, Path]:
-    root = matrices_root() / project
+    root = matrices_root() / (_safe_project(project) or UNKNOWN_PROJECT)
     return {
         "root": root,
         "packages": root / "work-packages.json",
@@ -67,15 +67,7 @@ def render_now(project: str, *, mode: str = "full", area: Optional[str] = None) 
         return {"ok": False, "error": str(exc)}
 
 
-def schedule_render(project: str, *, mode: str = "full") -> None:
-    """Start a render process that survives a short-lived hook or CLI."""
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(_SKILL_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
-    subprocess.Popen(
-        [sys.executable, "-m", "fsm_ledger", "render", "--project", project, "--mode", mode],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-        env=env,
-    )
+def schedule_render(project: str, *, delay: float = 0, mode: str = "full") -> None:
+    """Render synchronously; retain the old entry point for installed callers."""
+    del delay
+    render_now(project, mode=mode)

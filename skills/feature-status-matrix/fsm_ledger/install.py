@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from datetime import date
 from pathlib import Path
 from typing import Any, Optional
@@ -53,11 +54,68 @@ def ensure_project_scaffold(project: str = "agent-brain") -> dict[str, Any]:
     return {"root": str(root), "created": created}
 
 
+def _owned_plugin(path: Path) -> bool:
+    manifest = path / ".codex-plugin" / "plugin.json"
+    try:
+        return json.loads(manifest.read_text(encoding="utf-8")).get("name") == MARKER
+    except (FileNotFoundError, json.JSONDecodeError, AttributeError):
+        return False
+
+
 def install_codex() -> dict[str, Any]:
-    """Install Codex plugin under skill marketplace; merge config.toml safely."""
+    """Copy the plugin into the personal marketplace and prepare manual install."""
     plugin_src = HARNESSES / "codex"
-    marketplace = HARNESSES / "codex-marketplace"
-    plugin_dst = marketplace / "plugins" / "fsm-ledger"
+    catalog_root = Path.home() / ".agents" / "plugins"
+    plugin_dst = Path.home() / "plugins" / "fsm-ledger"
+    catalog = catalog_root / "marketplace.json"
+
+    data: dict[str, Any]
+    catalog_changed = not catalog.exists()
+    if catalog.exists():
+        try:
+            data = json.loads(catalog.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            return {"harness": "codex", "ok": False, "error": f"invalid {catalog}: {exc}"}
+        if not isinstance(data, dict) or not isinstance(data.get("plugins", []), list):
+            return {"harness": "codex", "ok": False, "error": f"invalid plugin catalog {catalog}"}
+    else:
+        data = {"name": "local", "interface": {"displayName": "Local Plugins"}, "plugins": []}
+
+    if plugin_dst.exists() or plugin_dst.is_symlink():
+        if plugin_dst.is_symlink() or not _owned_plugin(plugin_dst):
+            return {
+                "harness": "codex",
+                "ok": False,
+                "error": f"refusing to replace existing unrelated plugin path: {plugin_dst}",
+            }
+
+    entry = {
+        "name": MARKER,
+        "source": {"source": "local", "path": "./plugins/fsm-ledger"},
+        "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+        "category": "Productivity",
+    }
+    plugins = data["plugins"]
+    updated = False
+    merged_plugins = []
+    for item in plugins:
+        if isinstance(item, dict) and item.get("name") == MARKER:
+            if not updated:
+                merged_plugins.append(entry)
+                updated = True
+            continue
+        merged_plugins.append(item)
+    if not updated:
+        merged_plugins.append(entry)
+    catalog_changed = catalog_changed or merged_plugins != plugins
+    data["plugins"] = merged_plugins
+
+    catalog.parent.mkdir(parents=True, exist_ok=True)
+    stale_dst = catalog_root / "plugins" / "fsm-ledger"
+    if stale_dst != plugin_dst and stale_dst.is_dir() and not stale_dst.is_symlink():
+        if _owned_plugin(stale_dst):
+            shutil.rmtree(stale_dst)
+
     plugin_dst.parent.mkdir(parents=True, exist_ok=True)
     if plugin_dst.exists() or plugin_dst.is_symlink():
         if plugin_dst.is_symlink() or plugin_dst.is_file():
@@ -66,59 +124,98 @@ def install_codex() -> dict[str, Any]:
             shutil.rmtree(plugin_dst)
     shutil.copytree(plugin_src, plugin_dst)
 
+    bak_catalog = _backup(catalog) if catalog_changed and catalog.exists() else None
+    if catalog_changed:
+        catalog.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     config = Path.home() / ".codex" / "config.toml"
     result: dict[str, Any] = {
         "harness": "codex",
         "plugin": str(plugin_dst),
+        "catalog": str(catalog),
         "reminders": [
-            "Codex hooks require trust — accept the fsm-ledger plugin hooks when prompted.",
+            "Run `codex plugin add fsm-ledger@local`, then accept/trust the fsm-ledger hooks when prompted.",
             "Existing brute / ponytail / context-mode hooks are untouched.",
         ],
     }
-    if not config.exists():
-        result["ok"] = False
-        result["error"] = f"missing {config}"
-        return result
-
-    text = config.read_text(encoding="utf-8")
-    if f"# {MARKER} BEGIN" in text:
-        result["ok"] = True
-        result["skipped"] = "already installed"
-        return result
-
-    bak = _backup(config)
-    block = (
-        f"\n\n# {MARKER} BEGIN — shared usage ledger (do not remove marker lines)\n"
-        f"[marketplaces.fsm-ledger-local]\n"
-        f'source = "{marketplace}"\n'
-        f'source_type = "local"\n'
-        f"\n"
-        f'[plugins."fsm-ledger@fsm-ledger-local"]\n'
-        f"enabled = true\n"
-        f"# {MARKER} END\n"
-    )
-    config.write_text(text.rstrip() + block, encoding="utf-8")
     result["ok"] = True
-    result["backup"] = str(bak) if bak else None
-    result["config"] = str(config)
+    result["catalog_backup"] = str(bak_catalog) if bak_catalog else None
+    if config.exists():
+        text = config.read_text(encoding="utf-8")
+        new, count = re.subn(rf"^# {MARKER} BEGIN.*?^# {MARKER} END\n?", "", text, flags=re.DOTALL | re.MULTILINE)
+        if count:
+            bak = _backup(config)
+            config.write_text(new, encoding="utf-8")
+            result["legacy_config_backup"] = str(bak) if bak else None
+            result["migrated_legacy_config"] = True
     return result
 
 
 def uninstall_codex() -> dict[str, Any]:
+    cli = shutil.which("codex")
+    remove_result: dict[str, Any]
+    if not cli:
+        remove_result = {"ok": False, "skipped": "codex CLI unavailable"}
+    else:
+        try:
+            proc = subprocess.run(
+                [cli, "plugin", "remove", f"{MARKER}@local"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            remove_result = {"ok": proc.returncode == 0, "returncode": proc.returncode}
+            if proc.stdout:
+                remove_result["stdout"] = proc.stdout.strip()
+            if proc.stderr:
+                remove_result["stderr"] = proc.stderr.strip()
+        except OSError as exc:
+            remove_result = {"ok": False, "error": str(exc)}
+
+    if not remove_result["ok"]:
+        return {
+            "harness": "codex",
+            "ok": False,
+            "codex_remove": remove_result,
+            "removed_blocks": 0,
+            "removed_catalog": False,
+            "removed_plugin": False,
+        }
+
     config = Path.home() / ".codex" / "config.toml"
-    if not config.exists():
-        return {"harness": "codex", "ok": True, "skipped": "no config"}
-    text = config.read_text(encoding="utf-8")
-    new, n = re.subn(
-        rf"\n# {MARKER} BEGIN.*?# {MARKER} END\n?",
-        "\n",
-        text,
-        flags=re.DOTALL,
-    )
-    if n:
-        _backup(config)
-        config.write_text(new, encoding="utf-8")
-    return {"harness": "codex", "ok": True, "removed_blocks": n}
+    removed_blocks = 0
+    backup = None
+    if config.exists():
+        text = config.read_text(encoding="utf-8")
+        new, removed_blocks = re.subn(rf"^# {MARKER} BEGIN.*?^# {MARKER} END\n?", "", text, flags=re.DOTALL | re.MULTILINE)
+        if removed_blocks:
+            backup = _backup(config)
+            config.write_text(new, encoding="utf-8")
+
+    catalog = Path.home() / ".agents" / "plugins" / "marketplace.json"
+    removed_catalog = False
+    if catalog.exists():
+        data = json.loads(catalog.read_text(encoding="utf-8"))
+        plugins = data.get("plugins", []) if isinstance(data, dict) else []
+        kept = [item for item in plugins if not (isinstance(item, dict) and item.get("name") == MARKER)]
+        removed_catalog = len(kept) != len(plugins)
+        if removed_catalog:
+            _backup(catalog)
+            data["plugins"] = kept
+            catalog.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    plugin = Path.home() / "plugins" / MARKER
+    removed_plugin = False
+    if remove_result["ok"] and not plugin.is_symlink() and _owned_plugin(plugin):
+        shutil.rmtree(plugin)
+        removed_plugin = True
+    return {
+        "harness": "codex",
+        "ok": True,
+        "removed_blocks": removed_blocks,
+        "backup": str(backup) if backup else None,
+        "removed_catalog": removed_catalog,
+        "codex_remove": remove_result,
+        "removed_plugin": removed_plugin,
+    }
 
 
 def install_claude() -> dict[str, Any]:

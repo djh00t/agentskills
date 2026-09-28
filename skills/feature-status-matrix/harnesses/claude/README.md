@@ -7,5 +7,7 @@ existing `PreToolUse` entries. Marker key: `"fsm-ledger": true`.
 PYTHONPATH=~/.agents/skills/feature-status-matrix python3 -m fsm_ledger install --harnesses claude
 ```
 
-Parses stdin Stop payload and optional `transcript_path` JSONL; dedupes by message UUID.
-Transcript formats vary across Claude Code versions — best-effort / phase-1 fragile.
+Scans `transcript_path` JSONL at Stop and keeps the final usage snapshot for
+each assistant API message ID. It records cache reads and writes separately;
+total input includes both. A live Claude run is needed to verify the installed
+transcript format.
