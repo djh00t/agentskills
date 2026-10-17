@@ -19,12 +19,12 @@ def _utc_now_iso() -> str:
 class UsageEvent:
     workPackageId: str = UNALLOCATED
     model: str = ""
-    inputTokens: int = 0
-    outputTokens: int = 0
+    inputTokens: Optional[int] = None
+    outputTokens: Optional[int] = None
     cachedInputTokens: Optional[int] = None
     cacheWriteInputTokens: Optional[int] = None
     totalTokens: int = 0
-    costTotal: float = 0.0
+    costTotal: Optional[float] = None
     provider: str = ""
     harness: str = ""
     session_id: str = ""
@@ -79,14 +79,23 @@ def normalize_event(raw: dict[str, Any]) -> UsageEvent:
                     pass
         return 0
 
-    def _float(key: str, *alts: str) -> float:
+    def _optional_int(key: str, *alts: str) -> Optional[int]:
+        for k in (key, *alts):
+            if k in raw and raw[k] is not None:
+                try:
+                    return int(raw[k])
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    def _optional_float(key: str, *alts: str) -> Optional[float]:
         for k in (key, *alts):
             if k in raw and raw[k] is not None:
                 try:
                     return float(raw[k])
                 except (TypeError, ValueError):
-                    pass
-        return 0.0
+                    return None
+        return None
 
     def _str(key: str, *alts: str) -> str:
         for k in (key, *alts):
@@ -94,8 +103,8 @@ def normalize_event(raw: dict[str, Any]) -> UsageEvent:
                 return str(raw[k])
         return ""
 
-    inp = _int("inputTokens", "input_tokens", "prompt_tokens")
-    out = _int("outputTokens", "output_tokens", "completion_tokens")
+    inp = _optional_int("inputTokens", "input_tokens", "prompt_tokens")
+    out = _optional_int("outputTokens", "output_tokens", "completion_tokens")
     cached = (
         _int("cachedInputTokens", "cached_input_tokens", "cached_tokens")
         if any(k in raw and raw[k] is not None for k in (
@@ -104,7 +113,7 @@ def normalize_event(raw: dict[str, Any]) -> UsageEvent:
     )
     total = _int("totalTokens", "total_tokens")
     if total <= 0:
-        total = inp + out
+        total = int(inp or 0) + int(out or 0)
 
     return UsageEvent(
         workPackageId=_str("workPackageId", "work_package_id", "wp") or UNALLOCATED,
@@ -119,7 +128,7 @@ def normalize_event(raw: dict[str, Any]) -> UsageEvent:
             )) else None
         ),
         totalTokens=total,
-        costTotal=_float("costTotal", "cost_total", "usd_total", "cost"),
+        costTotal=_optional_float("costTotal", "cost_total", "usd_total", "cost"),
         provider=_str("provider"),
         harness=_str("harness"),
         session_id=_str("session_id", "sessionId"),

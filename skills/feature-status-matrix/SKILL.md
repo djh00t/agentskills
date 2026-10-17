@@ -96,12 +96,18 @@ Pricing: prefer provider-reported `costTotal`; else estimate from
 `agent-brain/config/inference_pricing.yaml` (never hard-coded). Soft-imports
 `pipelines.common.pricing.loader.estimate_cost` when on `PYTHONPATH`.
 `billing_mode=subscription` → `costTotal=0` + plan flag.
+Estimated amounts retain sub-micro-dollar precision in each response row so
+the ledger can sum small calls. Rows record the source URL and pricing date.
 
 Harness rows represent individual API responses. `inputTokens` is total input,
 including cached reads and cache writes; `cachedInputTokens` and
 `cacheWriteInputTokens` retain those components separately. `ts` is the response
 timestamp and `model` is the model used. An absent cache-write field means the
-source did not report it, not zero. Existing usage rows are not backfilled.
+source did not report it, not zero. If a model has a cache-read or cache-write
+rate and the usage does not report the corresponding count, the cost stays
+unknown. Cached-read and cache-write counts that exceed total input make the estimate unavailable.
+Missing model or token data stays unknown, not zero. Existing usage rows are not
+backfilled.
 
 ### Pipeline metered() helper
 

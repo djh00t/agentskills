@@ -41,6 +41,21 @@ class SchemaTest(unittest.TestCase):
         self.assertNotIn("cacheWriteInputTokens", normalize_event({}).to_dict())
         self.assertNotIn("cachedInputTokens", normalize_event({}).to_dict())
 
+    def test_missing_usage_and_cost_remain_unknown(self):
+        event = normalize_event({"model": "gpt-6-luna"}).to_dict()
+        self.assertNotIn("inputTokens", event)
+        self.assertNotIn("outputTokens", event)
+        self.assertNotIn("costTotal", event)
+        priced = price_event(event)
+        self.assertIsNone(priced["costTotal"])
+        self.assertIn("complete token usage", priced["cost_diagnostic"])
+
+    def test_reported_zero_cost_survives_normalization(self):
+        event = normalize_event(
+            {"model": "gpt-6-luna", "inputTokens": 1, "outputTokens": 1, "costTotal": 0}
+        ).to_dict()
+        self.assertEqual(price_event(event)["costTotal"], 0.0)
+
 
 class AttributeTest(unittest.TestCase):
     def test_branch_heuristic_ab_id(self):
@@ -161,6 +176,25 @@ class AttributeTest(unittest.TestCase):
 
 
 class PricerTest(unittest.TestCase):
+    def _pricing_snapshot(self, root: Path) -> Path:
+        path = root / "inference_pricing.yaml"
+        path.write_text(
+            "as_of_default: '2026-10-17'\nmodels:\n"
+            "  - provider: openai\n    model_id: gpt-6-luna\n"
+            "    price_per_1m_input_usd: 0.10\n"
+            "    price_per_1m_output_usd: 0.50\n"
+            "    price_per_1m_cached_input_usd: 0.01\n"
+            "    price_per_1m_cache_write_usd: 0.125\n"
+            "    context_tiers:\n      - minimum_context_tokens: 272000\n"
+            "        price_per_1m_input_usd: 0.20\n"
+            "        price_per_1m_output_usd: 0.75\n"
+            "        price_per_1m_cached_input_usd: 0.02\n"
+            "        price_per_1m_cache_write_usd: 0.25\n"
+            "    source_url: https://models.dev/models/openai/gpt-6-luna/\n",
+            encoding="utf-8",
+        )
+        return path
+
     def test_estimate_from_pricing_table(self):
         # Uses real table path if present; skip if missing
         try:
@@ -185,6 +219,110 @@ class PricerTest(unittest.TestCase):
             }
         )
         self.assertAlmostEqual(row["costTotal"], 1.23)
+
+    def test_models_dev_tier_and_cache_write_prices_are_applied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._pricing_snapshot(Path(directory))
+            with mock.patch("fsm_ledger.pricer._soft_estimate_via_agent_brain", return_value=None):
+                est = estimate_cost(
+                    300_000,
+                    100_000,
+                    "gpt-6-luna",
+                    tokens_cached_in=100_000,
+                    tokens_cache_write_in=50_000,
+                    path=path,
+                )
+        self.assertAlmostEqual(est["usd_total"], 0.1195)
+        self.assertEqual(est["context_tier_min_tokens"], 272_000)
+        self.assertEqual(est["rates"]["price_per_1m_cache_write_usd"], 0.25)
+        self.assertEqual(est["source_url"], "https://models.dev/models/openai/gpt-6-luna/")
+        self.assertEqual(est["pricing_date"], "2026-10-17")
+
+    def test_usage_event_uses_models_dev_rates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._pricing_snapshot(Path(directory))
+            with (
+                mock.patch("fsm_ledger.pricer._soft_estimate_via_agent_brain", return_value=None),
+                mock.patch("fsm_ledger.pricer.default_pricing_path", return_value=path),
+            ):
+                row = price_event(
+                    {
+                        "model": "gpt-6-luna",
+                        "inputTokens": 300_000,
+                        "outputTokens": 100_000,
+                        "cachedInputTokens": 100_000,
+                        "cacheWriteInputTokens": 50_000,
+                    }
+                )
+        self.assertAlmostEqual(row["costTotal"], 0.1195)
+        self.assertEqual(row["source_url"], "https://models.dev/models/openai/gpt-6-luna/")
+        self.assertTrue(row["cost_estimated"])
+
+    def test_usage_event_keeps_pricing_date_from_shared_loader(self):
+        with mock.patch(
+            "fsm_ledger.pricer._soft_estimate_via_agent_brain",
+            return_value={
+                "usd_total": 0.1195,
+                "as_of": "2026-10-17",
+                "source_url": "https://models.dev/models/openai/gpt-6-luna/",
+            },
+        ):
+            row = price_event(
+                {"model": "gpt-6-luna", "inputTokens": 300_000, "outputTokens": 100_000}
+            )
+        self.assertEqual(row["pricing_date"], "2026-10-17")
+
+    def test_sub_micro_cost_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._pricing_snapshot(Path(directory))
+            with mock.patch("fsm_ledger.pricer._soft_estimate_via_agent_brain", return_value=None):
+                est = estimate_cost(1, 0, "gpt-6-luna", path=path)
+        self.assertAlmostEqual(est["usd_total"], 0.0000001, places=14)
+
+    def test_unreported_cache_write_count_makes_cost_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._pricing_snapshot(Path(directory))
+            with (
+                mock.patch("fsm_ledger.pricer._soft_estimate_via_agent_brain", return_value=None),
+                mock.patch("fsm_ledger.pricer.default_pricing_path", return_value=path),
+            ):
+                row = price_event(
+                    {
+                        "billing_mode": "api",
+                        "model": "gpt-6-luna",
+                        "inputTokens": 10,
+                        "outputTokens": 1,
+                    }
+                )
+        self.assertIsNone(row["costTotal"])
+        self.assertIn("no reported cache-write count", row["cost_diagnostic"])
+
+    def test_unreported_cache_read_count_makes_cost_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._pricing_snapshot(Path(directory))
+            with mock.patch("fsm_ledger.pricer._soft_estimate_via_agent_brain", return_value=None):
+                with self.assertRaisesRegex(ValueError, "no reported cached-input count"):
+                    estimate_cost(
+                        10,
+                        1,
+                        "gpt-6-luna",
+                        tokens_cached_in=None,
+                        tokens_cache_write_in=0,
+                        path=path,
+                    )
+
+    def test_invalid_context_tier_price_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._pricing_snapshot(Path(directory))
+            path.write_text(
+                path.read_text(encoding="utf-8").replace(
+                    "price_per_1m_input_usd: 0.20", "price_per_1m_input_usd: .nan"
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch("fsm_ledger.pricer._soft_estimate_via_agent_brain", return_value=None):
+                with self.assertRaisesRegex(ValueError, "finite and nonnegative"):
+                    estimate_cost(300_000, 1, "gpt-6-luna", path=path)
 
 
 class LedgerAppendTest(unittest.TestCase):
