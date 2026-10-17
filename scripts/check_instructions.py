@@ -62,6 +62,9 @@ class InstructionContracts(unittest.TestCase):
                      'skills/conventional-commit-helper/SKILL.md'):
             with self.subTest(file=name):
                 text = (ROOT / name).read_text()
+                self.assertNotIn(
+                    'hand the PR(s) off to the user for merge/approval', text
+                )
                 # These clauses are a cross-file instruction contract, not an
                 # implementation of an agent's runtime authorization logic.
                 for clause in (

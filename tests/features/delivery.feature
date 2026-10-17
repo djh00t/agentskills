@@ -58,3 +58,8 @@ Feature: Local delivery workflow
     Given an isolated repository with the delivery files
     When the PR helper loses its wait-for-all-reviewers requirement
     Then make check fails
+
+  Scenario: Reject blanket human merge handoff guidance
+    Given an isolated repository with the delivery files
+    When AGENTS permits any green PR to be handed to the human for merge
+    Then make check fails

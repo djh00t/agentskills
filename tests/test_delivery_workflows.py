@@ -174,8 +174,20 @@ class DeliveryScenarios(unittest.TestCase):
         self.assertIn('Wait for every requested reviewer to finish',
                       result.stdout + result.stderr)
 
+    def blanket_human_handoff(self) -> None:
+        """Obsolete generic human handoff must not override agent integration."""
+        path = self.repo / 'AGENTS.md'
+        path.write_text(path.read_text() + (
+            '\nOnce green, hand the PR(s) off to the user for merge/approval.\n'
+        ))
+        result = self.run_command('make', 'check')
+        self.assertNotEqual(result.returncode, 0, 'blanket human handoff accepted')
+        self.assertIn('hand the PR(s) off to the user for merge/approval',
+                      result.stdout + result.stderr)
+
 
 SCENARIOS = {
+    'Reject blanket human merge handoff guidance': 'blanket_human_handoff',
     'Reject a missing complete-review lifecycle contract': 'missing_review_lifecycle',
     'Reject a failing behavioral suite before commit': 'failing_behavioral_suite',
     'Reject a missing Codex merge gate': 'missing_codex_gate',

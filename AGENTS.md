@@ -126,7 +126,10 @@ Rules:
 - Monitor the pull request for peer review feedback from the user, Copilot, or other agents.
   - When feedback appears it is your responsibility to consider the feedback and to decide how to action it.
   - All changes made as a result of feedback/peer review must follow the standard workflow outlined above.
-- Once all CI/CD checks are green and all peer review feedback has been resolved you can hand the PR(s) off to the user for merge/approval.
+- After all applicable current-head checks and requested reviews complete
+  and feedback is resolved, agents merge eligible feature/integration PRs
+  into release. Hand only necessary clean release-level PRs to the human,
+  with ready links and dependency-aware order.
 - DO NOT EVER approve PRs yourself without explicit permission of the user.
 
 ## Branch naming and merge authority
