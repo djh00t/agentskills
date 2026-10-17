@@ -1,9 +1,28 @@
-.PHONY: check quality-gates
+PYTHON ?= python3
+export PUBLISH_DIR
 
-# Root checks cover the delivery instruction collection. Skill-specific
-# applications retain their own Makefiles and tests.
+.PHONY: install check quality-gates clean build publish
+
+install:
+	$(PYTHON) -m venv .venv
+	.venv/bin/python scripts/check_instructions.py
+
 check:
-	python3 scripts/check_instructions.py
+	$(PYTHON) scripts/check_instructions.py
 	git diff --check
+	git diff --cached --check
 
 quality-gates: check
+	$(PYTHON) -m unittest discover -s tests -v
+
+build: check
+	$(PYTHON) scripts/delivery_bundle.py build
+
+# Destination validation happens before build or any publication writes.
+publish:
+	$(PYTHON) scripts/delivery_bundle.py validate-destination
+	$(MAKE) build
+	$(PYTHON) scripts/delivery_bundle.py publish
+
+clean:
+	$(PYTHON) scripts/delivery_bundle.py clean

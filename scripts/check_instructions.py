@@ -42,6 +42,39 @@ class InstructionContracts(unittest.TestCase):
         for link in links:
             self.assertTrue((folder / link).is_file(), link)
 
+    def test_branch_types_match_commit_types(self) -> None:
+        """Keep work branch types aligned with the actual commit contract."""
+        canonical = (ROOT / 'skills/conventional-commit-helper/SKILL.md').read_text()
+        header_rules = canonical.split('### 2) Scope selection', 1)[0]
+        commit_types = set(re.findall(r'^  - `([a-z]+)`$', header_rules, re.M))
+        self.assertEqual(len(commit_types), 11)
+        for name in ('AGENTS.md', 'skills/pr-helper/SKILL.md',
+                     'skills/conventional-commit-helper/SKILL.md'):
+            with self.subTest(file=name):
+                text = (ROOT / name).read_text()
+                match = re.search(r'Allowed work types.*?(?=\n- Role)', text, re.S)
+                self.assertIsNotNone(match, 'missing work branch type contract')
+                self.assertEqual(set(re.findall(r'`([a-z]+)`', match[0])), commit_types)
+
+    def test_required_merge_contract(self) -> None:
+        """Fail if an instruction surface loses a required merge safeguard."""
+        for name in ('AGENTS.md', 'skills/pr-helper/SKILL.md',
+                     'skills/conventional-commit-helper/SKILL.md'):
+            with self.subTest(file=name):
+                text = (ROOT / name).read_text()
+                # These clauses are a cross-file instruction contract, not an
+                # implementation of an agent's runtime authorization logic.
+                for clause in (
+                    'Codex GitHub review', 'independent',
+                    'adversarial acceptance/integration review pass',
+                    'prospective merged result', 'current target',
+                    'affected evidence', 'human-only',
+                    'source branch name conveys no authority',
+                    'Feature PRs must remain free of GitHub Actions',
+                    'grants no blanket approval or merge permission',
+                ):
+                    self.assertIn(clause, text)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
