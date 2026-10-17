@@ -17,7 +17,8 @@ Python 3.11 or newer and Git; it has no third-party dependencies.
 - `make publish PUBLISH_DIR=/explicit/local/path` copies that bundle to the
   chosen local directory. A missing destination fails before building.
   No network service, package registry, GitHub release, or deployment is used.
-- `make clean` removes `.venv` and `dist` while preserving local configuration.
+- `make clean` removes `.venv`, `dist`, and root scripts/tests Python caches
+  while preserving local configuration and bundled application directories.
 
 Applications bundled inside individual skills retain their own Makefiles and
 suites. Root checks do not claim to test those applications, execute an agent's

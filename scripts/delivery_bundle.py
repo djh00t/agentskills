@@ -53,7 +53,7 @@ def publish() -> None:
 
 def clean() -> None:
     """Remove only known generated directories; preserve all local config."""
-    for name in ('.venv', 'dist'):
+    for name in ('.venv', 'dist', 'scripts/__pycache__', 'tests/__pycache__'):
         path = ROOT / name
         if path.is_symlink():
             path.unlink()

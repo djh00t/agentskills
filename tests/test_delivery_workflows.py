@@ -102,14 +102,16 @@ class DeliveryScenarios(unittest.TestCase):
 
     def safe_clean(self) -> None:
         """Clean must remove only known outputs and preserve local config."""
-        for name in ('.venv', 'dist'):
-            (self.repo / name).mkdir()
+        for name in ('.venv', 'dist', 'scripts/__pycache__', 'tests/__pycache__'):
+            (self.repo / name).mkdir(parents=True, exist_ok=True)
             (self.repo / name / 'generated').write_text('generated\n')
         (self.repo / '.env').write_text('fixture-only\n')
         before = (self.repo / 'config.toml').read_bytes()
         self.successful_make('clean')
         self.assertFalse((self.repo / '.venv').exists())
         self.assertFalse((self.repo / 'dist').exists())
+        self.assertFalse((self.repo / 'scripts/__pycache__').exists())
+        self.assertFalse((self.repo / 'tests/__pycache__').exists())
         self.assertEqual((self.repo / '.env').read_text(), 'fixture-only\n')
         self.assertEqual((self.repo / 'config.toml').read_bytes(), before)
 

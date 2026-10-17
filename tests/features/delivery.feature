@@ -30,7 +30,7 @@ Feature: Local delivery workflow
     Then the published artifact equals the built bundle
 
   Scenario: Clean generated files without deleting local configuration
-    Given an isolated repository with generated files and local configuration
+    Given an isolated repository with generated files, Python caches and local configuration
     When make clean runs
     Then generated files are removed and local configuration is preserved
 
