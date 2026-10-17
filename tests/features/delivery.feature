@@ -48,3 +48,8 @@ Feature: Local delivery workflow
     Given an isolated repository with the delivery files
     When the PR helper omits an allowed work branch type
     Then make check fails
+
+  Scenario: Reject a failing behavioral suite before commit
+    Given an isolated repository with a failing workflow test
+    When make check runs
+    Then the workflow failure blocks the commit gate

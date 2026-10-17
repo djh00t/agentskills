@@ -4,10 +4,13 @@ Personal agent instructions and reusable skills. Root delivery tooling needs
 Python 3.11 or newer and Git; it has no third-party dependencies.
 
 - `make install` creates `.venv` and validates instructions with that Python.
-- `make check` checks TOML syntax, delivery-helper metadata and links, and
-  both staged and unstaged patch whitespace.
-- `make quality-gates` also executes the Gherkin workflow scenarios in
-  `tests/features/delivery.feature` against isolated real Git repositories.
+- `make check` checks TOML syntax, delivery-helper metadata and links,
+  both staged and unstaged patch whitespace, and executes the Gherkin
+  workflow scenarios against isolated real Git repositories.
+- `make quality-gates` also builds and validates the policy archive.
+- `make check-instructions` provides the fast structural/whitespace checks
+  used by the bundle builder. Full pre-commit and pre-push checks use
+  `make check`, including `tests/features/delivery.feature`.
 - `make build` validates and creates a reproducible `dist/delivery-policy.zip`.
   The bundle contains AGENTS.md and the three delivery helpers only; it is
   a policy bundle, not a distribution of every application in this repository.

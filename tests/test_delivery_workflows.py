@@ -134,8 +134,23 @@ class DeliveryScenarios(unittest.TestCase):
         result = self.run_command('make', 'check')
         self.assertNotEqual(result.returncode, 0, 'mismatched branch types accepted')
 
+    def failing_behavioral_suite(self) -> None:
+        """The commit gate must execute, and propagate failure from, BDD tests."""
+        folder = self.repo / 'tests'
+        folder.mkdir()
+        (folder / 'test_workflow_failure.py').write_text(
+            'import unittest\n'
+            'class WorkflowFailure(unittest.TestCase):\n'
+            '    def test_workflow(self):\n'
+            '        self.fail("BDD_SENTINEL")\n'
+        )
+        result = self.run_command('make', 'check')
+        self.assertNotEqual(result.returncode, 0, 'workflow failure ignored')
+        self.assertIn('BDD_SENTINEL', result.stdout + result.stderr)
+
 
 SCENARIOS = {
+    'Reject a failing behavioral suite before commit': 'failing_behavioral_suite',
     'Reject a missing Codex merge gate': 'missing_codex_gate',
     'Reject a missing human-only main rule': 'missing_human_rule',
     'Reject a mismatched branch type contract': 'mismatched_types',
