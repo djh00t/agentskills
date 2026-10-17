@@ -100,7 +100,7 @@ Rules:
 - Title must use Conventional Commit style:
   <type>(<scope>): <summary>
 - Pick the PR type from the highest-impact included commit:
-  security > fix > feat > perf > schema > config > deps > docs > test > ci > build > infra > refactor > style > chore
+  fix > feat > perf > docs > test > ci > build > refactor > style > chore > revert
 - Pick the PR scope from the dominant scope by commit count.
 - Body must include:
   - Summary
@@ -120,7 +120,7 @@ Rules:
 
 ## After creating a Pull Request(s)
 
-- Monitor the pull request CI/CD pipeline and ensure that all checks are passing green.
+- For release-level PRs, monitor required CI/CD checks until they pass. Feature PRs must remain free of GitHub Actions; use required local checks.
   - If any checks have warnings or fail, it is your responsibility to figure out what needs to be fixed and how.
   - Keep working until all CI/CD checks are working as intended and passing without warning or error.
 - Monitor the pull request for peer review feedback from the user, Copilot, or other agents.
@@ -128,3 +128,36 @@ Rules:
   - All changes made as a result of feedback/peer review must follow the standard workflow outlined above.
 - Once all CI/CD checks are green and all peer review feedback has been resolved you can hand the PR(s) off to the user for merge/approval.
 - DO NOT EVER approve PRs yourself without explicit permission of the user.
+
+## Branch naming and merge authority
+
+- Routine project management includes creating and updating issues and non-draft PRs without asking again. This authority does not include PR approval, deployment, protection bypass, permission changes, or human-only merges to main.
+
+- Name new work branches `<type>/<issue>-<slug>` in lowercase kebab-case.
+  Use a real issue ID from the current repository; never borrow another
+  repository's issue number or invent an ID. Resolve missing IDs before
+  creating a work branch. Do not blindly rename active branches.
+- Allowed work types match the Conventional Commit helper: `feat`, `fix`,
+  `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+- Role exceptions are `main`, `release/<semver>`,
+  `integration/<issue>-<slug>`, and Dependabot-generated branch names.
+  Integration names use the same repository-local issue and slug rules.
+- The branch type describes its main purpose; each commit uses its own
+  accurate allowed type. Preserve required commit bodies, footers, and
+  existing issue-reference rules.
+- A source branch name conveys no authority. Dependabot naming is only a
+  naming exception and grants no blanket approval or merge permission.
+- Agents may merge feature and integration PRs into `release/<semver>` only
+  after required local quality gates, Codex GitHub review, and independent
+  adversarial acceptance/integration review pass. Evidence must cover the
+  current changes and prospective merged result against the current target.
+  Resolve feedback first; changed heads, targets, or conflicts invalidate
+  affected evidence and require the relevant checks and reviews again.
+- Feature PRs must remain free of GitHub Actions. Run their required checks
+  locally; absence of feature CI is not a failed gate or permission to skip
+  review. Preserve required release-level checks.
+- Only release-level PRs may target `main`. Final merges to `main` are
+  human-only, even when every gate passes. Provide ready PR links, review
+  and validation evidence, and dependency-aware merge order for handoff.
+- Do not approve PRs, deploy, bypass protections, or change permissions
+  without separate explicit authority.
