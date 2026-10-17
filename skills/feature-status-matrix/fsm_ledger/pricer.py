@@ -6,6 +6,7 @@ Never hard-code list prices into this module.
 """
 from __future__ import annotations
 
+import math
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -35,7 +36,8 @@ def _soft_estimate_via_agent_brain(
     tokens_out: int,
     model: str,
     *,
-    tokens_cached_in: int = 0,
+    tokens_cached_in: int | None = 0,
+    tokens_cache_write_in: int | None = 0,
     batch: bool = False,
     path: Optional[Path] = None,
 ) -> Optional[dict[str, Any]]:
@@ -50,6 +52,7 @@ def _soft_estimate_via_agent_brain(
             model,
             batch=batch,
             tokens_cached_in=tokens_cached_in,
+            tokens_cache_write_in=tokens_cache_write_in,
             path=str(path) if path else None,
         )
     except Exception:
@@ -69,7 +72,12 @@ def _load_table_minimal(path_str: str) -> dict[str, dict[str, Any]]:
             continue
         if entry.get("price_per_1m_input_usd") is None:
             continue
-        out[str(entry["model_id"])] = entry
+        row = dict(entry)
+        if raw.get("as_of_default") is not None:
+            row.setdefault("as_of_default", raw["as_of_default"])
+        if raw.get("source_url") is not None:
+            row.setdefault("source_url", raw["source_url"])
+        out[str(entry["model_id"])] = row
     return out
 
 
@@ -78,7 +86,8 @@ def _estimate_minimal(
     tokens_out: int,
     model: str,
     *,
-    tokens_cached_in: int = 0,
+    tokens_cached_in: int | None = 0,
+    tokens_cache_write_in: int | None = 0,
     batch: bool = False,
     path: Path,
 ) -> dict[str, Any]:
@@ -86,34 +95,113 @@ def _estimate_minimal(
     if model not in table:
         raise KeyError(f"unknown model_id={model!r}")
     entry = table[model]
+    input_tokens = int(tokens_in)
+    output_tokens = int(tokens_out)
+    cache_read_unknown = tokens_cached_in is None
+    cached = 0 if cache_read_unknown else int(tokens_cached_in)
+    cache_write_unknown = tokens_cache_write_in is None
+    cache_write = 0 if cache_write_unknown else int(tokens_cache_write_in)
+    if min(input_tokens, output_tokens, cached, cache_write) < 0:
+        raise ValueError("token counts must be nonnegative")
+    if cached + cache_write > input_tokens:
+        raise ValueError("cached and cache-write tokens exceed total input tokens")
+
+    for key in ("price_per_1m_input_usd", "price_per_1m_output_usd"):
+        value = entry.get(key)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
+            raise ValueError(f"{key} must be finite and nonnegative")
+    for key in ("price_per_1m_cached_input_usd", "price_per_1m_cache_write_usd"):
+        value = entry.get(key)
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
+            raise ValueError(f"{key} must be finite and nonnegative")
+
+    tiers = entry.get("context_tiers") or []
+    for item in tiers:
+        minimum = item.get("minimum_context_tokens")
+        if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 1:
+            raise ValueError("minimum_context_tokens must be a positive integer")
+        for key in (
+            "price_per_1m_input_usd",
+            "price_per_1m_output_usd",
+            "price_per_1m_cached_input_usd",
+            "price_per_1m_cache_write_usd",
+        ):
+            value = item.get(key)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(f"{key} must be finite and nonnegative")
+        if item.get("price_per_1m_input_usd") is None or item.get("price_per_1m_output_usd") is None:
+            raise ValueError("context tier requires input and output prices")
+    tier = max(
+        (item for item in tiers if input_tokens >= item["minimum_context_tokens"]),
+        key=lambda item: item["minimum_context_tokens"],
+        default=None,
+    )
+    rates = {**entry, **tier} if tier else entry
     disc = float(entry["batch_discount"]) if (batch and entry.get("batch_discount") is not None) else 1.0
-    pin = float(entry["price_per_1m_input_usd"]) * disc
-    pout = float(entry["price_per_1m_output_usd"]) * disc
-    pcached_raw = entry.get("price_per_1m_cached_input_usd")
+    if not math.isfinite(disc) or disc < 0:
+        raise ValueError("batch_discount must be finite and nonnegative")
+    pin = float(rates["price_per_1m_input_usd"]) * disc
+    pout = float(rates["price_per_1m_output_usd"]) * disc
+    pcached_raw = rates.get("price_per_1m_cached_input_usd")
     pcached = float(pcached_raw) * disc if pcached_raw is not None else None
-    unc = max(0, int(tokens_in) - max(0, int(tokens_cached_in)))
-    cached = max(0, int(tokens_cached_in))
+    pcache_write_raw = rates.get("price_per_1m_cache_write_usd")
+    pcache_write = float(pcache_write_raw) * disc if pcache_write_raw is not None else None
+    if cache_write_unknown and input_tokens > cached and pcache_write is not None:
+        raise ValueError(f"model {model!r} has input tokens but no reported cache-write count")
+    if cache_read_unknown and input_tokens > cache_write and pcached is not None:
+        raise ValueError(f"model {model!r} has input tokens but no reported cached-input count")
+    unc = input_tokens - cached - cache_write
     cost_in = (unc / 1_000_000.0) * pin
-    cost_cached = 0.0
-    if cached and pcached is not None:
-        cost_cached = (cached / 1_000_000.0) * pcached
-    elif cached:
+    cost_cached = (cached / 1_000_000.0) * pcached if cached and pcached is not None else 0.0
+    if cached and pcached is None:
         cost_in += (cached / 1_000_000.0) * pin
-        cached = 0
-    cost_out = (max(0, int(tokens_out)) / 1_000_000.0) * pout
-    total = cost_in + cost_cached + cost_out
+    if cache_write and pcache_write is None:
+        raise ValueError(f"model {model!r} has cache-write tokens but no published cache-write rate")
+    cost_cache_write = (cache_write / 1_000_000.0) * pcache_write if cache_write and pcache_write is not None else 0.0
+    cost_out = (output_tokens / 1_000_000.0) * pout
+    total = cost_in + cost_cached + cost_cache_write + cost_out
+    pricing_date = next(
+        (entry[key] for key in ("pricing_date", "effective_date", "price_date", "as_of", "as_of_default") if entry.get(key) is not None),
+        "",
+    )
     return {
         "model": model,
         "batch": batch,
-        "tokens_in": int(tokens_in),
-        "tokens_out": int(tokens_out),
-        "tokens_cached_in": int(tokens_cached_in),
-        "usd_input": round(cost_in, 6),
-        "usd_cached_input": round(cost_cached, 6),
-        "usd_output": round(cost_out, 6),
-        "usd_total": round(total, 6),
+        "tokens_in": input_tokens,
+        "tokens_out": output_tokens,
+        "tokens_cached_in": cached,
+        "tokens_cache_write_in": cache_write,
+        "usd_input": cost_in,
+        "usd_cached_input": cost_cached,
+        "usd_cache_write_input": cost_cache_write,
+        "usd_output": cost_out,
+        "usd_total": total,
         "estimated_price_row": bool(entry.get("estimated")),
         "provider": str(entry.get("provider") or ""),
+        "source_url": entry.get("source_url"),
+        "rates": {
+            "price_per_1m_input_usd": pin,
+            "price_per_1m_output_usd": pout,
+            "price_per_1m_cached_input_usd": pcached,
+            "price_per_1m_cache_write_usd": pcache_write,
+        },
+        "context_tier_min_tokens": tier.get("minimum_context_tokens") if tier else None,
+        "pricing_date": str(pricing_date),
     }
 
 
@@ -122,7 +210,8 @@ def estimate_cost(
     tokens_out: int,
     model: str,
     *,
-    tokens_cached_in: int = 0,
+    tokens_cached_in: int | None = 0,
+    tokens_cache_write_in: int | None = 0,
     batch: bool = False,
     path: Optional[Path] = None,
 ) -> dict[str, Any]:
@@ -133,6 +222,7 @@ def estimate_cost(
         tokens_out,
         model,
         tokens_cached_in=tokens_cached_in,
+        tokens_cache_write_in=tokens_cache_write_in,
         batch=batch,
         path=pricing,
     )
@@ -145,6 +235,7 @@ def estimate_cost(
         tokens_out,
         model,
         tokens_cached_in=tokens_cached_in,
+        tokens_cache_write_in=tokens_cache_write_in,
         batch=batch,
         path=pricing,
     )
@@ -155,8 +246,8 @@ def price_event(event: dict[str, Any]) -> dict[str, Any]:
 
     Rules:
     - billing_mode=subscription → costTotal=0, cost_is_plan=True
-    - provider-reported costTotal already > 0 → keep it
-    - else estimate from table when model + tokens present
+    - valid provider-reported costTotal, including zero → keep it
+    - else estimate only when model and complete token usage are present
     """
     mode = str(event.get("billing_mode") or "api").lower()
     if mode == "subscription":
@@ -166,31 +257,81 @@ def price_event(event: dict[str, Any]) -> dict[str, Any]:
         return event
 
     reported = event.get("costTotal")
-    try:
-        reported_f = float(reported) if reported is not None else None
-    except (TypeError, ValueError):
-        reported_f = None
-    if reported_f is not None and reported_f > 0:
+    if reported is not None:
+        try:
+            if isinstance(reported, bool):
+                raise ValueError("boolean cost")
+            reported_f = float(reported)
+        except (TypeError, ValueError, OverflowError):
+            reported_f = float("nan")
+        if not math.isfinite(reported_f) or reported_f < 0:
+            event["costTotal"] = None
+            event["cost_diagnostic"] = "invalid reported cost"
+            event["cost_estimated"] = False
+            event["cost_is_plan"] = False
+            return event
         event["costTotal"] = reported_f
+        event["cost_is_plan"] = False
+        event.pop("cost_diagnostic", None)
+        return event
+
+    if event.get("cost_diagnostic"):
+        event["costTotal"] = None
+        event["cost_estimated"] = False
         event["cost_is_plan"] = False
         return event
 
     model = str(event.get("model") or "").strip()
-    if not model:
-        event.setdefault("costTotal", 0.0)
+    if (
+        not model
+        or event.get("inputTokens") is None
+        or event.get("outputTokens") is None
+        or "inputTokens" not in event
+        or "outputTokens" not in event
+    ):
+        event["costTotal"] = None
+        event["cost_diagnostic"] = "missing model or complete token usage"
+        event["cost_estimated"] = False
+        event["cost_is_plan"] = False
         return event
 
     try:
         est = estimate_cost(
-            int(event.get("inputTokens") or 0),
-            int(event.get("outputTokens") or 0),
+            int(event["inputTokens"]),
+            int(event["outputTokens"]),
             model,
-            tokens_cached_in=int(event.get("cachedInputTokens") or 0),
+            tokens_cached_in=(
+                int(event["cachedInputTokens"])
+                if event.get("cachedInputTokens") is not None
+                else None
+            ),
+            tokens_cache_write_in=(
+                int(event["cacheWriteInputTokens"])
+                if event.get("cacheWriteInputTokens") is not None
+                else None
+            ),
         )
-        event["costTotal"] = float(est["usd_total"])
+        estimate_value = est["usd_total"]
+        if isinstance(estimate_value, bool):
+            raise ValueError("invalid estimated cost")
+        estimate_value = float(estimate_value)
+        if not math.isfinite(estimate_value) or estimate_value < 0:
+            raise ValueError("invalid estimated cost")
+        event["costTotal"] = estimate_value
         event["cost_estimated"] = True
+        event["cost_is_plan"] = False
+        event.pop("cost_diagnostic", None)
+        if est.get("source_url") is not None:
+            event["source_url"] = est["source_url"]
+        if est.get("rates") is not None:
+            event["rates"] = est["rates"]
+        if est.get("pricing_date"):
+            event["pricing_date"] = est["pricing_date"]
         if not event.get("provider") and est.get("provider"):
             event["provider"] = est["provider"]
-    except Exception:
-        event.setdefault("costTotal", 0.0)
+    except Exception as exc:
+        event["costTotal"] = None
+        event["cost_estimated"] = False
+        event["cost_is_plan"] = False
+        event["cost_diagnostic"] = str(exc)
     return event

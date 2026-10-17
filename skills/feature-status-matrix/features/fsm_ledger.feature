@@ -20,3 +20,9 @@ Scenario: Metered calls do not retry internal errors
   Given a metered callable with side effects
   When it raises TypeError after performing one side effect
   Then the exception propagates without calling it again
+
+Scenario: Usage estimates retain models.dev token-price precision
+  Given a model rate snapshot with token, cache, and context-tier prices
+  When an API response has complete token usage
+  Then the ledger estimates its cost from the selected rates without rounding away small calls
+  And incomplete or inconsistent token usage has unknown cost
