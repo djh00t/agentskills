@@ -27,12 +27,22 @@ class DeliveryScenarios(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name) / 'repo'
         self.repo.mkdir()
+        (self.repo / 'tests').mkdir()
         for name in FILES:
             source = ROOT / name
             if source.exists():
                 target = self.repo / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
+        # Fixture checks run one real smoke test, not this outer suite; this
+        # prevents recursion and makes unrelated test-discovery errors fail.
+        (self.repo / 'tests/test_fixture.py').write_text(
+            'import unittest\n'
+            'from pathlib import Path\n'
+            'class FixtureSmoke(unittest.TestCase):\n'
+            '    def test_checkout(self):\n'
+            '        self.assertTrue(Path("AGENTS.md").is_file())\n'
+        )
         self.run_command('git', 'init', '-q')
         self.run_command('git', 'add', '.')
 
@@ -121,6 +131,7 @@ class DeliveryScenarios(unittest.TestCase):
         path.write_text(path.read_text().replace('Codex GitHub review', 'review'))
         result = self.run_command('make', 'check')
         self.assertNotEqual(result.returncode, 0, 'missing Codex gate accepted')
+        self.assertIn('Codex GitHub review', result.stdout + result.stderr)
 
     def missing_human_rule(self) -> None:
         """Deleting human-only main protection must fail instruction checks."""
@@ -128,6 +139,7 @@ class DeliveryScenarios(unittest.TestCase):
         path.write_text(path.read_text().replace('human-only', 'automatic'))
         result = self.run_command('make', 'check')
         self.assertNotEqual(result.returncode, 0, 'missing human-only rule accepted')
+        self.assertIn('human-only', result.stdout + result.stderr)
 
     def mismatched_types(self) -> None:
         """Branch types must continue matching the canonical commit whitelist."""
@@ -135,11 +147,12 @@ class DeliveryScenarios(unittest.TestCase):
         path.write_text(path.read_text().replace(', `revert`', ''))
         result = self.run_command('make', 'check')
         self.assertNotEqual(result.returncode, 0, 'mismatched branch types accepted')
+        self.assertIn('revert', result.stdout + result.stderr)
 
     def failing_behavioral_suite(self) -> None:
         """The commit gate must execute, and propagate failure from, BDD tests."""
         folder = self.repo / 'tests'
-        folder.mkdir()
+        folder.mkdir(exist_ok=True)
         (folder / 'test_workflow_failure.py').write_text(
             'import unittest\n'
             'class WorkflowFailure(unittest.TestCase):\n'
@@ -150,8 +163,20 @@ class DeliveryScenarios(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, 'workflow failure ignored')
         self.assertIn('BDD_SENTINEL', result.stdout + result.stderr)
 
+    def missing_review_lifecycle(self) -> None:
+        """Missing lifecycle rules must block ready status and integration."""
+        path = self.repo / 'skills/pr-helper/SKILL.md'
+        path.write_text(path.read_text().replace(
+            'Wait for every requested reviewer to finish', 'Proceed immediately'
+        ))
+        result = self.run_command('make', 'check')
+        self.assertNotEqual(result.returncode, 0, 'missing review lifecycle accepted')
+        self.assertIn('Wait for every requested reviewer to finish',
+                      result.stdout + result.stderr)
+
 
 SCENARIOS = {
+    'Reject a missing complete-review lifecycle contract': 'missing_review_lifecycle',
     'Reject a failing behavioral suite before commit': 'failing_behavioral_suite',
     'Reject a missing Codex merge gate': 'missing_codex_gate',
     'Reject a missing human-only main rule': 'missing_human_rule',

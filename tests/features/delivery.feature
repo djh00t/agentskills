@@ -53,3 +53,8 @@ Feature: Local delivery workflow
     Given an isolated repository with a failing workflow test
     When make check runs
     Then the workflow failure blocks the commit gate
+
+  Scenario: Reject a missing complete-review lifecycle contract
+    Given an isolated repository with the delivery files
+    When the PR helper loses its wait-for-all-reviewers requirement
+    Then make check fails

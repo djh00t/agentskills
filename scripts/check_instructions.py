@@ -65,6 +65,11 @@ class InstructionContracts(unittest.TestCase):
                 # These clauses are a cross-file instruction contract, not an
                 # implementation of an agent's runtime authorization logic.
                 for clause in (
+                    'Wait for every requested reviewer to finish',
+                    'all applicable current-head checks',
+                    'Immediately before merge, recheck',
+                    'Ask humans only for necessary clean release-level merges',
+                    'Pending, failed, stale, or unresolved evidence',
                     'Codex GitHub review', 'independent',
                     'adversarial acceptance/integration review pass',
                     'prospective merged result', 'current target',

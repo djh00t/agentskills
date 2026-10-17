@@ -52,3 +52,25 @@ description: Use when preparing, publishing, reviewing, or handing off pull requ
    Record reviewed head and target revisions and prospective merge evidence.
 6. Recheck freshness immediately before an eligible merge. For a main-target
    release PR, hand the ready link and dependency order to the human.
+
+## Clean PR lifecycle
+
+- Wait for every requested reviewer to finish before assessing readiness.
+  Review waits of 5, 10, 15 or more minutes and repeated review loops are
+  normal. Continue until all requested reviews complete and feedback is
+  addressed; do not stop at fixable findings or send them to the human.
+- Address and resolve reviewer feedback. After fixes or changes to the head
+  or base, rerun relevant gates and obtain fresh affected reviews. Repeat
+  this loop as needed; prior results do not certify changed revisions.
+- Before any merge or human handoff, all applicable current-head checks
+  must pass green, all requested reviews must be complete, and feedback
+  threads must be resolved. Pending, failed, stale, or unresolved evidence
+  must never be presented as ready. Feature PRs remain free of GitHub
+  Actions; their required local checks still apply.
+- Immediately before merge, recheck the current head, base, checks,
+  reviewer completion, and feedback threads. If anything changed, renew
+  affected validation and reviews before proceeding.
+- Agents handle eligible feature and integration merges after the required
+  gates pass. Ask humans only for necessary clean release-level merges,
+  with ready links and dependency-aware order. Release-level PRs remain
+  human-merge only; never ask a human to merge unresolved or failing work.
