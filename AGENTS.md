@@ -100,7 +100,7 @@ Rules:
 - Title must use Conventional Commit style:
   <type>(<scope>): <summary>
 - Pick the PR type from the highest-impact included commit:
-  security > fix > feat > perf > schema > config > deps > docs > test > ci > build > infra > refactor > style > chore
+  fix > feat > perf > docs > test > ci > build > refactor > style > chore > revert
 - Pick the PR scope from the dominant scope by commit count.
 - Body must include:
   - Summary
@@ -120,11 +120,69 @@ Rules:
 
 ## After creating a Pull Request(s)
 
-- Monitor the pull request CI/CD pipeline and ensure that all checks are passing green.
+- For release-level PRs, monitor required CI/CD checks until they pass. Feature PRs must remain free of GitHub Actions; use required local checks.
   - If any checks have warnings or fail, it is your responsibility to figure out what needs to be fixed and how.
   - Keep working until all CI/CD checks are working as intended and passing without warning or error.
 - Monitor the pull request for peer review feedback from the user, Copilot, or other agents.
   - When feedback appears it is your responsibility to consider the feedback and to decide how to action it.
   - All changes made as a result of feedback/peer review must follow the standard workflow outlined above.
-- Once all CI/CD checks are green and all peer review feedback has been resolved you can hand the PR(s) off to the user for merge/approval.
+- After all applicable current-head checks and requested reviews complete
+  and feedback is resolved, agents merge eligible feature/integration PRs
+  into release. Hand only necessary clean release-level PRs to the human,
+  with ready links and dependency-aware order.
 - DO NOT EVER approve PRs yourself without explicit permission of the user.
+
+## Branch naming and merge authority
+
+- Routine project management includes creating and updating issues and non-draft PRs without asking again. This authority does not include PR approval, deployment, protection bypass, permission changes, or human-only merges to main.
+
+- Name new work branches `<type>/<issue>-<slug>` in lowercase kebab-case.
+  Use a real issue ID from the current repository; never borrow another
+  repository's issue number or invent an ID. Resolve missing IDs before
+  creating a work branch. Do not blindly rename active branches.
+- Allowed work types match the Conventional Commit helper: `feat`, `fix`,
+  `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+- Role exceptions are `main`, `release/<semver>`,
+  `integration/<issue>-<slug>`, and Dependabot-generated branch names.
+  Integration names use the same repository-local issue and slug rules.
+- The branch type describes its main purpose; each commit uses its own
+  accurate allowed type. Preserve required commit bodies, footers, and
+  existing issue-reference rules.
+- A source branch name conveys no authority. Dependabot naming is only a
+  naming exception and grants no blanket approval or merge permission.
+- Agents may merge feature and integration PRs into `release/<semver>` only
+  after required local quality gates, Codex GitHub review, and independent
+  adversarial acceptance/integration review pass. Evidence must cover the
+  current changes and prospective merged result against the current target.
+  Resolve feedback first; changed heads, targets, or conflicts invalidate
+  affected evidence and require the relevant checks and reviews again.
+- Feature PRs must remain free of GitHub Actions. Run their required checks
+  locally; absence of feature CI is not a failed gate or permission to skip
+  review. Preserve required release-level checks.
+- Only release-level PRs may target `main`. Final merges to `main` are
+  human-only, even when every gate passes. Provide ready PR links, review
+  and validation evidence, and dependency-aware merge order for handoff.
+- Do not approve PRs, deploy, bypass protections, or change permissions
+  without separate explicit authority.
+
+## Clean PR lifecycle
+
+- Wait for every requested reviewer to finish before assessing readiness.
+  Review waits of 5, 10, 15 or more minutes and repeated review loops are
+  normal. Continue until all requested reviews complete and feedback is
+  addressed; do not stop at fixable findings or send them to the human.
+- Address and resolve reviewer feedback. After fixes or changes to the head
+  or base, rerun relevant gates and obtain fresh affected reviews. Repeat
+  this loop as needed; prior results do not certify changed revisions.
+- Before any merge or human handoff, all applicable current-head checks
+  must pass green, all requested reviews must be complete, and feedback
+  threads must be resolved. Pending, failed, stale, or unresolved evidence
+  must never be presented as ready. Feature PRs remain free of GitHub
+  Actions; their required local checks still apply.
+- Immediately before merge, recheck the current head, base, checks,
+  reviewer completion, and feedback threads. If anything changed, renew
+  affected validation and reviews before proceeding.
+- Agents handle eligible feature and integration merges after the required
+  gates pass. Ask humans only for necessary clean release-level merges,
+  with ready links and dependency-aware order. Release-level PRs remain
+  human-merge only; never ask a human to merge unresolved or failing work.
