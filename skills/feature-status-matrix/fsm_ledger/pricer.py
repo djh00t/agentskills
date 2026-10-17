@@ -325,8 +325,9 @@ def price_event(event: dict[str, Any]) -> dict[str, Any]:
             event["source_url"] = est["source_url"]
         if est.get("rates") is not None:
             event["rates"] = est["rates"]
-        if est.get("pricing_date"):
-            event["pricing_date"] = est["pricing_date"]
+        pricing_date = est.get("pricing_date") or est.get("as_of")
+        if pricing_date:
+            event["pricing_date"] = pricing_date
         if not event.get("provider") and est.get("provider"):
             event["provider"] = est["provider"]
     except Exception as exc:

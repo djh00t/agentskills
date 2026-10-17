@@ -258,6 +258,20 @@ class PricerTest(unittest.TestCase):
         self.assertEqual(row["source_url"], "https://models.dev/models/openai/gpt-6-luna/")
         self.assertTrue(row["cost_estimated"])
 
+    def test_usage_event_keeps_pricing_date_from_shared_loader(self):
+        with mock.patch(
+            "fsm_ledger.pricer._soft_estimate_via_agent_brain",
+            return_value={
+                "usd_total": 0.1195,
+                "as_of": "2026-10-17",
+                "source_url": "https://models.dev/models/openai/gpt-6-luna/",
+            },
+        ):
+            row = price_event(
+                {"model": "gpt-6-luna", "inputTokens": 300_000, "outputTokens": 100_000}
+            )
+        self.assertEqual(row["pricing_date"], "2026-10-17")
+
     def test_sub_micro_cost_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._pricing_snapshot(Path(directory))
