@@ -62,3 +62,10 @@ The repository workflow runs `make quality-gates` from this folder. It includes
 `make check`; there is no root quality-gates target. All checks run offline.
 The scenarios in `features/message_log.feature` are implemented by the named
 `unittest` methods in `tests/test_cg_log.py` and run with `make check`.
+
+`cg_inbox.py` reads paged Codex messages and prints a JSON routing plan. Pass
+`--reader module:callable`, `--log PATH`, and a conversation ID. The reader
+accepts `(conversation_id, cursor, limit)` and returns `messages` and
+`next_cursor`. Optional `--roles FILE` supplies role-to-agent-ID mappings.
+The pass does not write the log or send, acknowledge, or launch messages.
+`tests/test_cg_inbox.py` covers paging, filtering, expiry, and read-only failure.
