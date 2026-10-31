@@ -1,0 +1,9 @@
+/.build/
+/.swiftpm/
+/dist/
+*.provisionprofile
+*.mobileprovision
+*.p12
+*.cer
+/build/
+DerivedData/
