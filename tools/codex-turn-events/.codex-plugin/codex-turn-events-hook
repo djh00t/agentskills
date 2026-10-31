@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Codex hook entry point. Must print {} and exit 0 whatever happens.
+EVENT="${1:-stop}"
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+python3 "$DIR/codex_turn_events.py" hook "$EVENT" 2>/dev/null || printf '{}\n'
+exit 0

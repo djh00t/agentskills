@@ -1,0 +1,6 @@
+{
+  "name": "codex-turn-events",
+  "version": "0.2.0",
+  "description": "Push turn_complete and needs_approval events from Codex to a webhook.",
+  "hooks": "./.codex-plugin/hooks.json"
+}
