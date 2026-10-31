@@ -1,0 +1,28 @@
+name: codex-turn-events
+
+on:
+  pull_request:
+    paths:
+      - "tools/codex-turn-events/**"
+      - ".github/workflows/codex-turn-events.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tools/codex-turn-events/**"
+      - ".github/workflows/codex-turn-events.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/codex-turn-events
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Stdlib only; the runner's python3 is enough.
+      - name: make quality-gates
+        run: make quality-gates
