@@ -1,0 +1,154 @@
+#!/bin/sh
+# Build, wrap, sign and verify FluxAgeKeychain.app.
+#
+# A command-line tool cannot embed a provisioning profile, and the data protection
+# keychain needs a profile-authorized keychain-access-groups entitlement, so the tool
+# ships inside a minimal app-like bundle:
+#
+#   FluxAgeKeychain.app/Contents/{Info.plist, MacOS/flux-age-keychain,
+#                                 embedded.provisionprofile, _CodeSignature/}
+#
+# Usage: package.sh            build, embed the profile, sign with Developer ID, verify
+#        package.sh --unsigned build and assemble the bundle only (no profile, no
+#                              signing); the result cannot use the keychain
+#
+# Settings (environment, or KEY=value lines in ~/.config/flux-age-keychain/package.env):
+#   FLUX_AGE_TEAM_ID        10-character Apple Developer Team ID (required to sign)
+#   FLUX_AGE_BUNDLE_ID      bundle id of the App ID (default com.example.flux-age-keychain;
+#                           set your own reverse-DNS id)
+#   FLUX_AGE_GROUP_SUFFIX   keychain access group suffix after "<team id>."
+#                           (default com.example.flux-age; set your own reverse-DNS id)
+#   FLUX_AGE_PROFILE        Developer ID provisioning profile
+#                           (default ~/.config/flux-age-keychain/FluxAgeKeychain.provisionprofile)
+#   FLUX_AGE_SIGN_IDENTITY  codesign identity (default "Developer ID Application")
+#   FLUX_AGE_OUT            output directory (default <package>/dist)
+#
+# The keychain access group is <team id>.<FLUX_AGE_GROUP_SUFFIX>. It names the stored
+# flux-age/* data, not this binary: once items exist, every later build must use the same
+# team id and suffix, or it cannot see them.
+#
+# It never reads or writes a keychain item and never prints a secret. Notarization is a
+# separate, optional step that this script does not cover.
+
+set -eu
+set +x
+
+die() {
+    printf 'package: %s\n' "$*" >&2
+    exit 2
+}
+
+[ "$(uname -s)" = Darwin ] || die "macOS only (needs swift, codesign and the Security framework)"
+
+unsigned=0
+case ${1:-} in
+    "") ;;
+    --unsigned) unsigned=1 ;;
+    *) die "usage: package.sh [--unsigned]" ;;
+esac
+
+config_dir="$HOME/.config/flux-age-keychain"
+if [ -f "$config_dir/package.env" ]; then
+    # shellcheck disable=SC1091 # the user's own settings file, outside the repo
+    . "$config_dir/package.env"
+fi
+
+pkg=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+bundle_id=${FLUX_AGE_BUNDLE_ID:-com.example.flux-age-keychain}
+group_suffix=${FLUX_AGE_GROUP_SUFFIX:-com.example.flux-age}
+profile=${FLUX_AGE_PROFILE:-$config_dir/FluxAgeKeychain.provisionprofile}
+identity=${FLUX_AGE_SIGN_IDENTITY:-Developer ID Application}
+out=${FLUX_AGE_OUT:-$pkg/dist}
+app="$out/FluxAgeKeychain.app"
+
+printf '%s\n' "$bundle_id" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' \
+    || die "FLUX_AGE_BUNDLE_ID is not a reverse-DNS bundle id: $bundle_id"
+printf '%s\n' "$group_suffix" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' \
+    || die "FLUX_AGE_GROUP_SUFFIX is not a reverse-DNS id: $group_suffix"
+
+if [ "$unsigned" -eq 0 ]; then
+    team=${FLUX_AGE_TEAM_ID:-}
+    [ -n "$team" ] || die "FLUX_AGE_TEAM_ID is not set"
+    printf '%s\n' "$team" | grep -Eq '^[A-Z0-9]{10}$' || die "FLUX_AGE_TEAM_ID must be 10 characters A-Z0-9"
+    group=$team.$group_suffix
+    [ -f "$profile" ] || die "provisioning profile not found: $profile"
+fi
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/flux-age-package.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+# 1. Build.
+swift build --package-path "$pkg" -c release --product flux-age-keychain >&2
+bin=$(swift build --package-path "$pkg" -c release --show-bin-path)/flux-age-keychain
+[ -x "$bin" ] || die "build did not produce $bin"
+
+# 2. Assemble the bundle.
+rm -rf "$app"
+mkdir -p "$app/Contents/MacOS"
+cp "$bin" "$app/Contents/MacOS/flux-age-keychain"
+version=$("$bin" --version | awk '{print $2}')
+cat >"$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>flux-age-keychain</string>
+	<key>CFBundleIdentifier</key>
+	<string>$bundle_id</string>
+	<key>CFBundleName</key>
+	<string>FluxAgeKeychain</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$version</string>
+	<key>CFBundleVersion</key>
+	<string>$version</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+</dict>
+</plist>
+PLIST
+plutil -lint "$app/Contents/Info.plist" >/dev/null || die "Info.plist is invalid"
+
+if [ "$unsigned" -eq 1 ]; then
+    printf 'unsigned bundle: %s (cannot use the keychain until signed)\n' "$app"
+    exit 0
+fi
+
+# 3. Check the profile authorizes this team, App ID and access group.
+security cms -D -i "$profile" >"$work/profile.plist" 2>/dev/null || die "cannot decode $profile"
+pb() { /usr/libexec/PlistBuddy -c "Print $1" "$work/profile.plist" 2>/dev/null; }
+pb ':TeamIdentifier:0' | grep -qx "$team" || die "profile is not for team $team"
+profile_app=$(pb ':Entitlements:com.apple.application-identifier') || die "profile has no application-identifier"
+# shellcheck disable=SC2254 # a profile App ID may be a wildcard such as TEAMID.*
+case "$team.$bundle_id" in
+    $profile_app) ;;
+    *) die "profile App ID $profile_app does not match $team.$bundle_id" ;;
+esac
+pb ':ProvisionsAllDevices' | grep -qx true \
+    || die "profile is not a Developer ID profile (it has a device list)"
+groups=$(pb ':Entitlements:keychain-access-groups') || die "profile does not allow keychain-access-groups"
+allowed=0
+for g in $(printf '%s\n' "$groups" | sed -n 's/^ *\([^ {}]*\) *$/\1/p'); do
+    # shellcheck disable=SC2254 # profile entries are glob patterns such as TEAMID.*
+    case $group in $g) allowed=1 ;; esac
+done
+[ "$allowed" -eq 1 ] || die "profile keychain-access-groups do not allow $group"
+
+# 4. Render entitlements, embed the profile, sign (no --deep), verify.
+sed -e "s/@TEAM_ID@/$team/g" -e "s/@BUNDLE_ID@/$bundle_id/g" -e "s/@ACCESS_GROUP@/$group/g" \
+    "$pkg/FluxAgeKeychain.entitlements.template" >"$work/FluxAgeKeychain.entitlements"
+plutil -lint "$work/FluxAgeKeychain.entitlements" >/dev/null || die "rendered entitlements are invalid"
+cp "$profile" "$app/Contents/embedded.provisionprofile"
+codesign --force --options runtime --timestamp \
+    --entitlements "$work/FluxAgeKeychain.entitlements" \
+    --sign "$identity" "$app"
+codesign --verify --strict --verbose=2 "$app"
+codesign -d --entitlements - --xml "$app" 2>/dev/null >"$work/signed.plist"
+/usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' "$work/signed.plist" | grep -qx "$group" \
+    || die "signed entitlements do not carry $group"
+codesign -dv "$app" 2>&1 | grep -q 'flags=.*runtime' || die "hardened runtime is not on"
+printf 'signed bundle: %s\naccess group: %s\n' "$app" "$group"

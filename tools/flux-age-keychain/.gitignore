@@ -1,0 +1,15 @@
+/.build/
+/.swiftpm/
+/dist/
+*.provisionprofile
+*.mobileprovision
+*.p12
+*.cer
+/build/
+DerivedData/
+*.p8
+*.certSigningRequest
+*.entitlements
+!*.entitlements.template
+xcuserdata/
+package.env
