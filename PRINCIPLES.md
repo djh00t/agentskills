@@ -75,8 +75,7 @@ without a PR (section 12).
 
 ## 4. Hard limits (always the Owner's call)
 
-These stay human-gated at every tier until an Owner-merged PR says otherwise,
-with a time or milestone limit and an undo path (section 3, Earned autonomy).
+Human-gated at every tier until an Owner-merged PR says otherwise (section 3).
 
 1. Spending money, or raising a budget beyond the amount delegated.
 2. Security, credential, secret or access-policy changes, including creating,
@@ -187,16 +186,16 @@ Technical English.
    the Owner adds value that agents cannot. That is the human's highest-value
    work. If a type of touchpoint had at least 10 answers in the last 30 days
    and the Owner took the recommendation each time, the Chief of Staff proposes,
-   by PR, to remove or automate it.
+   by PR, to remove or automate it. For a hard-limit touchpoint, do step 3
+   (Control) first.
 3. **Control.** For a class of hard-limit action, build an automated control
    (spend caps, staged rollouts with automatic rollback, recoverable deletes,
    scoped short-lived credentials, pre-approved message templates). Run it with
    the human still gating, and show it would have caught past mistakes. Then
    propose a PR that moves that class to tier B with the control attached.
 
-Removing a touchpoint or a hard limit is a widening, in any repo. The PR follows
-section 3 (Earned autonomy): Peer Reviewer approves, then the Owner merges it,
-with a time or milestone limit and an undo path. Section 6 does not apply.
+Removing a touchpoint or a hard limit is a widening in any repo: Peer Reviewer
+approves and the Owner merges, as in section 3 (Earned autonomy), not section 6.
 
 ## 12. Incidents and narrowed authority
 
@@ -213,10 +212,11 @@ Any agent or the Owner can declare an incident. An incident is one of:
 Not incidents: a revert that is not for a defect, and a scanner alert (for
 example Dependabot or CodeQL) that the agent's own change did not cause.
 
-The declarer opens the incident record (section 7). It names the agent and the
-class of action and links the evidence. Put no secrets or personal data in it;
-link to private evidence. Only an Owner-merged PR undoes a false declaration,
-as in Recovery but with no fix needed.
+The declarer opens the incident record at once (an issue is fine); the tier drop
+does not wait for a PR review. The record names the agent and the class of
+action and links the evidence. In a public repo, name agents and apps by role.
+The section 11 privacy rules apply. Only an Owner-merged PR undoes a false
+declaration, as in Recovery but with no fix needed.
 
 ### Immediate effects
 
@@ -229,13 +229,15 @@ as in Recovery but with no fix needed.
    a hard limit (a delete, a credential rotation, a production rollback, a
    retraction post) stays tier C: ask first (section 8).
 4. The agent reports what happened, the impact and the undo to the delegator and
-   the Owner. It adds the root cause and the control that prevents a repeat to
-   the incident record.
+   the Owner, and adds the root cause and the control that prevents a repeat to
+   the record. If another agent declared it or the agent does not respond, the
+   declarer reports.
 
 ### Reassignment
 
 1. Within 1 working day, the Chief of Staff reassigns the open work in that
-   class. It grants no authority: the successor acts only on its own grant.
+   class and logs it in the record. It grants no authority: the successor acts
+   only on its own grant.
 2. The successor must hold the needed tier and have a clean record: no open
    incident in that class. It gets a written handoff: goal, state, open risks.
 3. If the Chief of Staff is the affected agent, Peer Reviewer or the Owner picks
@@ -243,15 +245,12 @@ as in Recovery but with no fix needed.
 4. With no successor, the affected agent continues at the lower tier and asks
    for tier C steps (section 8). If work waits more than 2 working days, the
    Chief of Staff asks the Owner what to do with it.
-5. The Chief of Staff logs the reassignment in the incident record.
 
 ### Sub-delegated workers
 
-1. Workers below the affected agent drop to the new tier at once, for the
-   affected class only (section 5). They keep their other grants and their own
-   track record.
-2. Each worker checkpoints, then continues in the reduced scope or moves to the
-   successor's delegation tree.
+Workers below the affected agent drop to the new tier at once, for that class
+only (section 5); they keep other grants and their own track record. Each
+checkpoints, then continues in the reduced scope or moves to the successor.
 
 ### Recovery and close
 
@@ -260,5 +259,4 @@ as in Recovery but with no fix needed.
    Reviewer, then the decision queue.
 2. The incident closes when the restore PR merges, when the Owner decides that
    the tier stays down, or when a PR undoes a false declaration. The Chief of
-   Staff writes the close in the record. If the Chief of Staff is the affected
-   agent, Peer Reviewer does it.
+   Staff (or Peer Reviewer, if the Chief of Staff is affected) records it.
