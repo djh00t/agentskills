@@ -2,6 +2,11 @@
 
 @~/.codex/AGENTS-RTK.md
 @~/.codex/AGENTS-CONTEXT-MODE.md
+@~/.agents/PRINCIPLES.md
+
+## Operating principles
+
+All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review, evidence rules and incidents. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md wins.
 
 ## Dependency Advisor
 
@@ -113,8 +118,7 @@ Rules:
   - Operational Notes
   - Linked Work
   - Reviewer Checklist
-- Do not invent test results.
-- If evidence is missing, write "Not provided".
+- Do not invent test results. If evidence is missing, write "Not provided".
 - Breaking changes must be impossible to miss.
 - Optimise for generated changelogs, release notes, product docs, and reviewer comprehension.
 
@@ -126,5 +130,5 @@ Rules:
 - Monitor the pull request for peer review feedback from the user, Copilot, or other agents.
   - When feedback appears it is your responsibility to consider the feedback and to decide how to action it.
   - All changes made as a result of feedback/peer review must follow the standard workflow outlined above.
-- Once all CI/CD checks are green and all peer review feedback has been resolved you can hand the PR(s) off to the user for merge/approval.
-- DO NOT EVER approve PRs yourself without explicit permission of the user.
+- Merging follows PRINCIPLES.md section 6: the authoring agent may merge a feature PR once Peer Reviewer approves with no changes requested, all checks are green and all feedback is resolved. Peer Reviewer may merge a Dependabot PR that it approved, once all checks are green. Release PRs go to the decision queue for the user to merge.
+- Never approve your own PR.
