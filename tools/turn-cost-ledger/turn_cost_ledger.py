@@ -12,14 +12,21 @@ never $0; else costTotal (API rates from the models.dev snapshot). A call with
 no priced row is counted in calls_unpriced and the turn's cost_complete is false.
 
 Stdlib only. Output: CSV (default) or JSONL on stdout.
+
+--since-last-run is the daily reconcile: it scans from the day before the last
+run (all rollouts on the first run), prints the usual ledger, writes a JSON gap
+report to stderr (turns with cost_complete=false or no wall clock, by day) and
+records today's date in --state. Rollouts are the source of truth, so it also
+covers turns whose hooks failed.
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 FIELDS = [
@@ -166,6 +173,36 @@ def path_date(path: Path, sessions: Path) -> date | None:
         return None
 
 
+def read_last_run(state: Path) -> date | None:
+    try:
+        return date.fromisoformat(json.loads(state.read_text(encoding="utf-8"))["last_run_date"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def write_last_run(state: Path, today: date) -> None:
+    state.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(state, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"last_run_date": today.isoformat()}, fh)
+
+
+def gap_report(rows: list[dict], since: date | None) -> dict:
+    report = {"since": since.isoformat() if since else None, "turns": len(rows),
+              "cost_incomplete": 0, "no_wall_clock": 0, "by_day": {}}
+    for r in rows:
+        gaps = [k for k, bad in (("cost_incomplete", not r["cost_complete"]),
+                                 ("no_wall_clock", r["wall_clock_s"] is None)) if bad]
+        if not gaps:
+            continue
+        day = report["by_day"].setdefault((r["started_at"] or "unknown")[:10],
+                                          {"cost_incomplete": 0, "no_wall_clock": 0})
+        for k in gaps:
+            report[k] += 1
+            day[k] += 1
+    return report
+
+
 def main(argv: list[str] | None = None) -> int:
     home = Path.home()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -173,8 +210,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ledger-root", type=Path, default=home / ".agents" / "status-matrices")
     ap.add_argument("--since", type=date.fromisoformat, default=None,
                     help="only rollouts whose path date (YYYY/MM/DD) is on or after this ISO date, e.g. 2026-10-31")
+    ap.add_argument("--since-last-run", action="store_true",
+                    help="daily reconcile: since the day before the last run, gap report on stderr")
+    ap.add_argument("--state", type=Path, default=home / ".local" / "state" / "turn-cost-ledger" / "last-run.json",
+                    help="last-run file for --since-last-run")
     ap.add_argument("--format", choices=["csv", "jsonl"], default="csv")
     args = ap.parse_args(argv)
+    if args.since_last_run:
+        if args.since:
+            ap.error("--since and --since-last-run are mutually exclusive")
+        last = read_last_run(args.state)
+        args.since = last - timedelta(days=1) if last else None  # overlap catches late-finishing turns
 
     prices = load_prices(args.ledger_root)
     rows = []
@@ -191,6 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         w = csv.DictWriter(sys.stdout, fieldnames=FIELDS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
+    if args.since_last_run:
+        print(json.dumps(gap_report(rows, args.since), sort_keys=True), file=sys.stderr)
+        write_last_run(args.state, date.today())
     return 0
 
 

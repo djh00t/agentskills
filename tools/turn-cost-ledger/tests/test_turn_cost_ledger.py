@@ -1,10 +1,12 @@
 import io
 import json
 import os
+import stat
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -111,6 +113,26 @@ class TurnCostLedgerTest(unittest.TestCase):
         self.assertEqual(set(self.run_cli("--since", "2026-10-31")), {"t1"})
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             self.run_cli("--since", "2026/10/31")
+
+    def test_since_last_run_reconciles_from_day_before_and_reports_gaps(self):
+        state = Path(self.tmp.name) / "state" / "last-run.json"
+        err = io.StringIO()
+        with redirect_stderr(err):
+            self.assertEqual(set(self.run_cli("--since-last-run", "--state", str(state))), {"t1", "t2", "t3", "t4"})
+        first = json.loads(err.getvalue())
+        self.assertEqual((first["since"], first["turns"], first["cost_incomplete"], first["no_wall_clock"]),
+                         (None, 4, 3, 3))
+        self.assertEqual(first["by_day"]["2026-10-31"], {"cost_incomplete": 1, "no_wall_clock": 0})
+        self.assertEqual(json.loads(state.read_text())["last_run_date"], date.today().isoformat())
+        self.assertEqual((stat.S_IMODE(state.stat().st_mode), stat.S_IMODE(state.parent.stat().st_mode)),
+                         (0o600, 0o700))
+        state.write_text(json.dumps({"last_run_date": "2026-11-01"}))
+        err = io.StringIO()
+        with redirect_stderr(err):
+            self.assertEqual(set(self.run_cli("--since-last-run", "--state", str(state))), {"t1"})
+        self.assertEqual(json.loads(err.getvalue())["since"], "2026-10-31")
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.run_cli("--since-last-run", "--since", "2026-10-31", "--state", str(state))
 
 
 if __name__ == "__main__":

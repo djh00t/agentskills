@@ -34,3 +34,13 @@ Scenario: --since takes an ISO date and filters by the rollout path date
   When the ledger is generated with --since 2026-10-31
   Then only the 2026/10/31 turn is reported
   And a non-ISO --since value is rejected
+
+Scenario: --since-last-run is the daily reconcile with a gap report
+  Given no last-run state
+  When the ledger is generated with --since-last-run
+  Then every rollout is scanned, a JSON gap report (cost_incomplete, no_wall_clock, by_day) goes to stderr
+  And today's date is written to a 0600 state file in a 0700 dir
+  Given a last run of 2026-11-01
+  When the ledger is generated with --since-last-run
+  Then only rollouts from 2026-10-31 on are scanned
+  And --since with --since-last-run is rejected
