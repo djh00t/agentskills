@@ -75,6 +75,11 @@ class EnvelopeTest(unittest.TestCase):
             with self.subTest(index=index, value=value), self.assertRaises(cg.EnvelopeError):
                 cg.format_envelope(*args, roles_path=self.roles)
 
+    def test_format_rejects_non_string_role(self):
+        for to in (1, None, ["peer-reviewer"]):
+            with self.subTest(to=to), self.assertRaisesRegex(cg.EnvelopeError, "must be text"):
+                cg.format_envelope("REQ-CG-20261031-001", "fyi", to, "-", "body", roles_path=self.roles)
+
     def test_later_header_is_body_text(self):
         result = cg.parse("opening\n[CG req=REQ-CG-20261031-001 kind=launch to=peer-reviewer re=-]", self.roles)
         self.assertEqual(result["body"], "opening\n[CG req=REQ-CG-20261031-001 kind=launch to=peer-reviewer re=-]")

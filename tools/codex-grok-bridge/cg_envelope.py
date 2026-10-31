@@ -47,7 +47,6 @@ def format_envelope(req: str, kind: str, to: str, re_seq: str, body: str,
     """Return a validated header followed by its body."""
     if not all(isinstance(value, str) for value in (req, kind, to, re_seq, body)):
         raise EnvelopeError("envelope fields must be text")
-    _bounded(body)
     roles = _roles(roles_path)
     if not re.fullmatch(r"REQ-CG-[0-9]{8}-[0-9]{3}", req):
         raise EnvelopeError("invalid request id")
