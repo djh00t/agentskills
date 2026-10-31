@@ -58,7 +58,10 @@ class MessageLog:
             value = row["seq"]
             if not value.isascii() or not value.isdecimal():
                 raise LogError("invalid log sequence")
-            seq = int(value)
+            try:
+                seq = int(value)
+            except ValueError as error:
+                raise LogError("invalid log sequence") from error
             if seq in seen:
                 raise LogError("duplicate log sequence")
             if row["state"] not in TRANSITIONS:
@@ -91,14 +94,18 @@ class MessageLog:
                 or any(row["note"] == "migrated legacy cursor" and row["state"] == "done"
                        and not row["req_id"] for row in rows)):
             return rows
-        value = self.legacy_last_seq.read_text(encoding="utf-8-sig").strip()
-        if not value.isascii() or not value.isdecimal():
+        try:
+            value = self.legacy_last_seq.read_text(encoding="utf-8-sig").strip()
+            legacy = int(value) if value.isascii() and value.isdecimal() else None
+        except ValueError as error:
+            raise LogError("invalid legacy sequence") from error
+        if legacy is None:
             raise LogError("invalid legacy sequence")
         if self.path.exists():
-            if int(value) > self._cursor(rows):
+            if legacy > self._cursor(rows):
                 raise LogError("legacy sequence is higher than existing cursor")
             return rows
-        return [{"seq": str(int(value)), "req_id": "", "received_at": "", "routed_to": "", "acked": "",
+        return [{"seq": str(legacy), "req_id": "", "received_at": "", "routed_to": "", "acked": "",
                  "state": "done", "ack_msg_id": "", "note": "migrated legacy cursor"}]
 
     def record(self, seq: int, req_id: str, received_at: str, routed_to: str = "", acked: str = "",

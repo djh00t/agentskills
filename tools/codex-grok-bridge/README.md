@@ -17,9 +17,8 @@ and exceed the cursor only when it has reached a stored, handled row. Existing
 sequence records are unchanged on replay, including handled and migrated rows.
 Before any row is handled, out-of-order arrivals such as 2 then 1 are accepted.
 New sequences at or below a handled cursor raise `LogError`.
-The migration note
-`migrated legacy cursor` is reserved: neither public write method accepts it,
-and the terminal migration row cannot be changed.
+The migration note `migrated legacy cursor` is reserved: neither public write
+method accepts it, and the terminal migration row cannot be changed.
 
 `received_at` holds the receive timestamp. Text fields use CSV escaping with a
 TSV delimiter, including embedded tabs, quotes, and newlines.
@@ -27,7 +26,9 @@ TSV delimiter, including embedded tabs, quotes, and newlines.
 The cursor starts immediately before the lowest stored sequence (zero for an
 empty log). It advances through consecutive `routed`, `acked`, `done`, or
 `failed` rows; missing and `received` rows stop it. A terminal failure counts as
-handled and does not block later progress. For example, sequence 4
+handled and does not block later progress. Mark a row `failed` only when no
+retry is wanted: the cursor moves past it, and re-recording its sequence is a
+no-op. For example, sequence 4
 `received` and sequence 5 `routed` return cursor 3.
 
 A legacy last-sequence file can seed a missing log on first use. Values must be
