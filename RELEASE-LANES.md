@@ -138,8 +138,10 @@ integration suite can write data or send messages.
 
 Minimum soak (adopted with the lane paths, since it only adds waiting). The
 Owner's Q5 answer, "A: Adopt as written, review in a month" (decision item 22),
-adopted the canary column. The dev column is a Chief of Staff addition; it only
-adds waiting.
+adopted the canary times as listed to the Owner: "I1 2 h, I2 24 h, I3 72 h
+including a peak". The canary qualifiers "one full job cycle" (I1), "the daily
+peak" (I2) and "a weekday peak" (I3) are Chief of Staff narrowings; they only
+add waiting. The dev column is a Chief of Staff addition; it only adds waiting.
 
 | Class | dev soak | canary soak (once a canary exists) |
 | --- | --- | --- |
@@ -157,7 +159,8 @@ owner:
 
 - error rate at most baseline times 1.2;
 - p95 latency at most baseline times 1.2;
-- the product numbers the project names are not down more than 5%;
+- business metrics (the product numbers the project names) are not down more
+  than 5%;
 - a missing signal is unknown, never counts as a pass, and blocks promotion.
 
 Chief of Staff additions (adopted; each only adds a gate):
@@ -173,8 +176,8 @@ need their own Owner answer: error rate may also reach baseline plus 0.1
 percentage points; p95 may also reach baseline plus 50 ms; run cost may also
 reach one dollar per hour.
 
-Review: "review in a month" is the Owner's wording. The computed date is
-30 Nov 2026.
+Review: "review in a month" is the Owner's wording. The computed date, a Chief
+of Staff narrowing, is the end of 30 Nov 2026 AEDT (23:59 AEDT).
 
 ## 6. Delegated authority
 
@@ -192,9 +195,11 @@ Review: "review in a month" is the Owner's wording. The computed date is
 Each grant is a colony charter delegation, cited here by id. Common terms:
 
 - Projects: a grant covers only projects named in its colony delegation. None
-  are named yet. A project is added by a PR the Owner merges.
-- Expiry: each grant ends on 30 Nov 2026 (the Q5 review date) unless a new
-  Owner-merged PR renews it.
+  are named yet. A project is added by a PR the Owner merges, one project per
+  PR, citing evidence or stating the same accepted evidence gap (PRINCIPLES.md
+  section 3, "one agent or one project").
+- Expiry: each grant ends at the end of 30 Nov 2026 AEDT (23:59 AEDT), the
+  computed Q5 review date, unless a new Owner-merged PR renews it.
 - Evidence: not provided; Owner merge accepts this. PRINCIPLES.md section 3
   asks for track-record evidence and section 11 step 3 control evidence; none
   is cited for these grants.
@@ -228,8 +233,8 @@ automatic rollback").
   Peer Reviewer approval.
 
 **Q3, prod pin-revert PR** (delegation `release-lanes-q3-prod-pin-revert`;
-decision item 20, 3:17 PM AEDT; answer A, recorded by the decision register as
-"image-only rollbacks, never with a data migration").
+decision item 20, 3:17 PM AEDT; answer "A: Image-only, never with a data
+migration").
 
 - The permitted action: the project's owner agent opens and merges a PR whose
   only change sets the prod image pin back to the last known-good image digest.
@@ -240,15 +245,17 @@ decision item 20, 3:17 PM AEDT; answer A, recorded by the decision register as
   the new value equals the last known-good digest recorded in the trail.
   Anything else in the diff, and the `.flux/**` Owner-merge rule applies.
 - Last known-good prod pin: the previous prod pin that ran a full alarm window
-  with no trigger firing and was not itself rolled back.
+  with no trigger firing and was not itself rolled back. If the project has no
+  defined prod alarm window, no prod pin is known-good, so there is no Q3
+  pin-revert.
 - Never with a data migration, fail closed: if the trail cannot show that no
   data migration ran since that pin, treat it as having run. Backfills and
   other data-changing jobs count as migrations. Then stop and forward-fix or
   ask, at tier C. The contract (drop) step of a migration is I4.
 - Q3 does not cover an incident undo by the agent whose change caused the
   incident: PRINCIPLES.md section 12, Immediate effects step 3, keeps that
-  agent's production rollback at tier C. Another agent that holds the grant
-  may run the pin-revert.
+  agent's production rollback at tier C. So the project's owner agent may run
+  the pin-revert only when another agent's change caused the incident.
 
 **Q4, I1 release PRs to main** (delegation `release-lanes-q4-i1-release-merge`;
 decision item 21, 3:18 PM AEDT; question "Can small (I1) fixes reach main
@@ -339,8 +346,8 @@ paired colony charter PR merge (Status, above).
   without asking? "A: Level 6 projects only, with automatic rollback"
   (section 6).
 - Q3 (decision item 20, 3:17 PM AEDT). Should a rollback to the previous prod
-  version be pre-approved? Answer A, recorded as "image-only rollbacks, never
-  with a data migration" (section 6).
+  version be pre-approved? "A: Image-only, never with a data migration"
+  (section 6).
 - Q4 (decision item 21, 3:18 PM AEDT). "Can small (I1) fixes reach main
   without your approval?" "B: Yes, now" (section 6).
 - Q5 (decision item 22, 3:19 PM AEDT). Are the soak times and thresholds
