@@ -12,12 +12,13 @@
 #        package.sh --unsigned build and assemble the bundle only (no profile, no
 #                              signing); the result cannot use the keychain
 #
-# Settings (environment, or KEY=value lines in ~/.config/flux-age-keychain/package.env):
+# Settings come from the environment, or from ~/.config/flux-age-keychain/package.env,
+# which is sourced as shell (use plain KEY=value lines) and overrides the environment:
 #   FLUX_AGE_TEAM_ID        10-character Apple Developer Team ID (required to sign)
-#   FLUX_AGE_BUNDLE_ID      bundle id of the App ID (default com.example.flux-age-keychain;
-#                           set your own reverse-DNS id)
+#   FLUX_AGE_BUNDLE_ID      bundle id of the App ID (default com.example.flux-age-keychain,
+#                           accepted only with --unsigned)
 #   FLUX_AGE_GROUP_SUFFIX   keychain access group suffix after "<team id>."
-#                           (default com.example.flux-age; set your own reverse-DNS id)
+#                           (default com.example.flux-age, accepted only with --unsigned)
 #   FLUX_AGE_PROFILE        Developer ID provisioning profile
 #                           (default ~/.config/flux-age-keychain/FluxAgeKeychain.provisionprofile)
 #   FLUX_AGE_SIGN_IDENTITY  codesign identity (default "Developer ID Application")
@@ -61,6 +62,18 @@ identity=${FLUX_AGE_SIGN_IDENTITY:-Developer ID Application}
 out=${FLUX_AGE_OUT:-$pkg/dist}
 app="$out/FluxAgeKeychain.app"
 
+# Values go into Info.plist and a sed replacement unescaped, so they must be one line.
+# grep matches line by line, so multi-line values are refused before the pattern check.
+nl='
+'
+cr=$(printf '\r')
+one_line() {
+    case $2 in
+        *"$nl"* | *"$cr"*) die "$1 must not contain a newline or carriage return" ;;
+    esac
+}
+one_line FLUX_AGE_BUNDLE_ID "$bundle_id"
+one_line FLUX_AGE_GROUP_SUFFIX "$group_suffix"
 printf '%s\n' "$bundle_id" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' \
     || die "FLUX_AGE_BUNDLE_ID is not a reverse-DNS bundle id: $bundle_id"
 printf '%s\n' "$group_suffix" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' \
@@ -69,6 +82,15 @@ printf '%s\n' "$group_suffix" | grep -Eq '^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$' \
 if [ "$unsigned" -eq 0 ]; then
     team=${FLUX_AGE_TEAM_ID:-}
     [ -n "$team" ] || die "FLUX_AGE_TEAM_ID is not set"
+    one_line FLUX_AGE_TEAM_ID "$team"
+    # The access group names the stored data and items cannot be deleted, so a signed
+    # build must never fall back to the placeholder ids.
+    case $bundle_id in
+        com.example.*) die "set FLUX_AGE_BUNDLE_ID to your own id; com.example.* is only for --unsigned" ;;
+    esac
+    case $group_suffix in
+        com.example.*) die "set FLUX_AGE_GROUP_SUFFIX to your own id; com.example.* is only for --unsigned" ;;
+    esac
     printf '%s\n' "$team" | grep -Eq '^[A-Z0-9]{10}$' || die "FLUX_AGE_TEAM_ID must be 10 characters A-Z0-9"
     group=$team.$group_suffix
     [ -f "$profile" ] || die "provisioning profile not found: $profile"
