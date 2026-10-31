@@ -185,7 +185,7 @@ of Staff narrowing, is the end of 30 Nov 2026 AEDT (23:59 AEDT).
 | --- | --- | --- |
 | Deploy to dev or canary | Owner (hard limit 3), except the Q2 grant below | Unchanged |
 | dev to canary | Owner, except the Q2 grant below | Unchanged |
-| Merge into feature, integration or release branches | PRINCIPLES.md section 6: the author merges after Peer Reviewer approves (this wins over Colony's nonauthor integrator) | Unchanged |
+| Merge into feature, integration or release branches | PRINCIPLES.md section 6: the author merges after Peer Reviewer approves, pinned to the head sha. This is the Owner's explicit exception to Colony's nonauthor integrator rule (decision item 74, 3:54 PM AEDT, "74: A") | Unchanged |
 | Release PR to main | Owner, except the Q4 grant below | Unchanged |
 | Move prod (pin-bump or overlay PR) | Owner, except the Q3 pin-revert PR below | Unchanged; release controller auto-merge awaits an Owner answer |
 | Roll back prod | The Q3 pin-revert PR below. Any other rollback: Owner-merged PR, tier C (PRINCIPLES.md section 12, step 3) | Unattended automatic prod triggers, see below |
