@@ -130,5 +130,5 @@ Rules:
 - Monitor the pull request for peer review feedback from the user, Copilot, or other agents.
   - When feedback appears it is your responsibility to consider the feedback and to decide how to action it.
   - All changes made as a result of feedback/peer review must follow the standard workflow outlined above.
-- Merging follows PRINCIPLES.md section 6: an agent may merge a feature PR once Peer Reviewer approves with no changes requested, all checks are green and all feedback is resolved. Release PRs go to the decision queue for the user to merge.
+- Merging follows PRINCIPLES.md section 6: the authoring agent may merge a feature PR once Peer Reviewer approves with no changes requested, all checks are green and all feedback is resolved. Peer Reviewer may merge a Dependabot PR that it approved, once all checks are green. Release PRs go to the decision queue for the user to merge.
 - Never approve your own PR.
