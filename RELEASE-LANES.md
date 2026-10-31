@@ -1,259 +1,231 @@
 # Release lanes: dev, canary and main
 
-Status: proposal. This file widens agent authority, so Peer Reviewer approves it
-and only the Owner merges it (PRINCIPLES.md sections 3 and 11). Until then the
-current rules apply unchanged. Every rule here sits inside PRINCIPLES.md; where
-they conflict, PRINCIPLES.md wins.
+## Status and precedence
 
-## 1. Foundation: Colony
+Merging this file adopts only three things: the impact classification (section
+3), the catch rules (section 4) and the lane-decision trail (section 7). They
+add checks and grant no authority.
 
-The core philosophy is the Colony working method (Colony workflow and
-measurement handoff, 30 Oct 2026) and the Owner's gate policy of the same day:
-once a project has launched, **the merge to main is the only human gate**,
-unless spending goes past the delegated budget. Everything else is found, built,
-reviewed and integrated by agent owners and the swarms they spawn.
+Everything marked PROPOSED is not adopted. Each widening comes later as its own
+PR under PRINCIPLES.md section 3 (Earned autonomy): one agent or one project,
+with evidence, a time or milestone limit and an undo path. A hard-limit class
+first needs the section 11 step 3 control, run with the Owner still gating.
 
-This policy uses Colony's words and rules:
+Precedence, highest first: PRINCIPLES.md, then Colony, then this file.
 
-- **One accountable owner per outcome**, end to end. Helpers add capacity or
-  independent review; a nonauthor integrator integrates.
-- **Small packages**: 5–10 minutes, hard cap 15. Push a stable slice when ready.
-- **No work registers.** The trail lives in GitHub issues, branches, PRs and
-  Flux overlays, indexed by Steve. No new board or approval queue.
-- **Separate delivery stages**: source → published → installed → runtime →
-  user outcome. Evidence never moves across stages. Merged source is not a
-  healthy deployment.
-- **Unknown stays unknown.** A missing signal never counts as a pass.
-- **Measure benefit, not activity**: accepted outcomes, waiting time, escaped
-  defects, recovery, attributable cost, human attention returned.
-- **Maturity levels L0–L7** (Colony capability matrix) decide how much a project
-  may automate (section 5).
+## 1. Sources
 
-Supporting inspiration (not authority):
+Core philosophy: the Colony working method ("Colony workflow and measurement
+handoff", 30 Oct 2026). This file depends on these Colony rules only:
+
+- "Feature/integration-to-release is permitted within the existing scope;
+  release-to-main remains human-only."
+- "No unauthorized deployment, production upload, credentials, security/access
+  changes or financial execution."
+- Maturity L3, falsifiable verification: "Acceptance is tested against
+  observable results."
+- Maturity L6, gates and recovery paths: "Authority/risk rules govern
+  transitions and failures return only to affected nodes."
+- Maturity L7, learning across layers: "A lesson changes the appropriate tool,
+  memory, check or workflow ... A prompt edit or written lesson alone is
+  insufficient."
+
+Colony has no installed runtime maturity assessor yet, so no project can show
+L6 at runtime today.
+
+The Owner's stated intent (30 Oct 2026) is that once a project has launched,
+the merge to main is the only human gate, unless spending goes past the
+delegated budget. That is not yet in PRINCIPLES.md, so it grants nothing.
+Hard limits 2, 4, 5 and 6 (credentials, sends, deletes, irreversible) would
+still apply.
+
+Supporting inspiration, not authority:
 
 - [jsnnsa, "How I Built the Most AI-Pilled Company in the World"](https://x.com/jsnnsa/status/2115623382721126826):
-  coordinate through the shared world (stigmergy), hourly ship cadence, full
-  suite every 15 minutes on latest, 30-second targeted rollback, dumb hard gates
-  only where undo is impossible, ~0.9% revert rate.
+  agents coordinate through shared code and the live product, and keep a few
+  hard gates only where undo is impossible.
 - [0xjmori, "Grok Bot Agents: How to Build an AI Team You Can Actually Trust"](https://x.com/0xjmori/status/2101661510091034926):
-  autonomy is earned by clean runs and lowered when quality drops; a reviewer
-  before more autonomy; bounded loops; weekly audit.
+  autonomy is earned by clean runs and lowered when quality drops.
 - [m4lkxx, "Harness, Loops, Graphs"](https://x.com/m4lkxx/status/2114338456750997922):
-  gate on the price of undo, not on confidence; the model labels the change,
-  code decides what the label unlocks; put the human only where undo does not
-  exist; a lesson lands on the layer that owns it.
+  gate on the price of undo; the model labels a change and code decides what
+  the label unlocks.
 
 ## 2. Lanes
 
-| Lane | What it is | Purpose | Delivery stage |
-| --- | --- | --- | --- |
-| **dev** | Feature or integration branch, deployed to the cluster's dev overlay | Prove anything unproven that changes how the app works or integrates | source → installed (dev) |
-| **canary** | `release/x.y.z` candidate, deployed to the canary overlay with its own data and a capped share of real traffic | Soak, A/B tests, small bug fixes | installed → runtime (canary) |
-| **main** | `release/x.y.z` → `main`, then Foreman promotes the image digest to the prod overlay | Production | runtime (prod) → user outcome |
+| Lane | What it is | Use it for |
+| --- | --- | --- |
+| dev | Feature or integration branch on the dev overlay | Anything unproven that changes how the app works or integrates |
+| canary | Release candidate on a canary overlay with its own data and capped real traffic | Soak, small fixes, A/B tests |
+| main | Release PR merged to main by the Owner, then a reviewed pin-bump or overlay PR, merged by the Owner, moves prod to the new pinned commit or digest | Production |
 
-Where a project has no canary overlay yet, canary is skipped and its changes
-take the dev → main path with the dev soak times below.
+No project has a canary today; the release controller's canary ring waits on an
+Owner decision. Until a project has one, its changes go dev then main, using
+the dev soak in section 5.
 
-### What each lane must prove before promotion
+## 3. Impact classification (adopted)
 
-- **dev → canary**: the new behaviour has a check that failed before and passes
-  now (Colony L3); integration suite green on the dev install; no new error
-  signatures over the dev soak; migrations ran forward and their rollback or
-  forward-fix was exercised.
-- **canary → main**: soak time met (section 4); every promotion signal inside
-  its threshold; integration suite green on the canary install; the rollback
-  path was exercised at least once for this project in the last 30 days.
-- **main → prod**: release PR merged by the Owner; Foreman promotion PR passes
-  checks and Peer Reviewer approves (unchanged rule); post-deploy smoke and
-  integration suite green within 15 minutes.
-
-## 3. Impact classes
-
-The authoring agent scores each change on six factors, 0–2 each. Deterministic
-path rules (owned by the classifier, not the agent) can raise a score, never
-lower it. Peer Reviewer re-scores in review; the higher score wins.
+The author scores six factors 0 to 2 and records them in the trail (section 7).
 
 | Factor | 0 | 1 | 2 |
 | --- | --- | --- | --- |
-| Blast radius | One module, no callers change | One service or its callers | Many services, shared libs, cluster config |
-| Reversibility | `git revert` restores exactly | Revert plus a redeploy or cache flush | Forward-fix only, or not reversible |
-| Data / schema | None | Additive (new column, new key) | Changes or deletes existing data or contracts |
-| Security | None | Touches auth, input handling or deps | Credentials, access policy, crypto, secrets |
-| Cost | No change | Under 20% more run cost, inside budget | Over 20%, or needs budget past delegation |
-| User-visible | No | Visible but behind a flag or cosmetic | Changes default behaviour users rely on |
+| Blast radius | One module, no callers change | One service or its callers | Many services, shared libraries, cluster config |
+| Reversibility | `git revert` restores exactly | Revert plus a redeploy or cache flush | Forward-fix only |
+| Data / schema | None | Additive (new column, new key) | Changes existing data or contracts |
+| Security | None | Input handling or dependencies | (auth and access policy are I4) |
+| Cost | No change | Under 20% more run cost | 20% or more, inside the delegated budget |
+| User-visible | No | Behind a flag, or cosmetic | Changes default behaviour users rely on |
 
-Class is set by the total **and** by any single 2:
+The highest matching class wins:
 
-| Class | Rule | Examples | Minimum lane path |
-| --- | --- | --- | --- |
-| **I0 trivial** | Total 0–1, no factor at 2, Data and Security 0 | Docs, comments, tests, typo, log text | main (fast path, section 7) |
-| **I1 small** | Total 2–3, no factor at 2 | Local bug fix, small refactor | canary → main |
-| **I2 moderate** | Total 4–6, or one 2 outside Data/Security/Reversibility | New feature behind a flag, minor dependency bump | dev → canary → main |
-| **I3 systemic** | Total 7+, or a 2 in Data or Reversibility | Schema migration, contract change, infra, auth flow | dev → canary (long soak) → main |
-| **I4 hard limit** | Security 2, Cost 2, any delete, external send, or anything irreversible | Credential rotation, destructive migration | Stop: Owner decides before any lane (tier C) |
+| Class | Rule | Minimum lane path |
+| --- | --- | --- |
+| I4 hard limit | Any auth, access-policy, credential or secret change; any delete; any external send; anything not reversible; spending past the delegated budget | None until the Owner decides (tier C) |
+| I3 systemic | Data 2 or Reversibility 2, or a total of 7 or more | dev, then canary (long soak), then main |
+| I2 moderate | A total of 4 to 6, or any other factor at 2 | dev, then canary, then main |
+| I1 small | Not I0, a total of 3 or less, no factor at 2 | dev or canary, then main |
+| I0 trivial | A total of 1 or less, Data 0, Security 0, no path rule fired | The next release PR |
 
-Path rules that force a class up (examples, kept in code next to the CI check):
-`migrations/**` → Data ≥ 1; `.flux/envs/prod/**` → I3 minimum; `**/auth/**`,
-`**/secrets/**` → Security ≥ 1; lockfile changes → Security ≥ 1.
+Every class reaches main through the release PR, which the Owner merges.
 
-## 4. Soak times and promotion signals
+## 4. Catch rules (adopted)
 
-| Class | dev soak | canary soak | Canary traffic cap |
-| --- | --- | --- | --- |
-| I0 | — | — | — |
-| I1 | — | 2 h and 500 requests (or one full job cycle) | 10% |
-| I2 | integration suite green | 24 h incl. one daily peak | 10% |
-| I3 | 24 h | 72 h incl. a weekday peak | 5% |
+Path rules can raise a class, never lower it:
 
-Promotion signals, each compared with the prod baseline over the same window:
+- Owner merge whatever the score: `.github/workflows/**`, Makefile and other
+  quality-gate targets, CODEOWNERS, `.flux/**`, the classifier rule file, and
+  any change that deletes, skips or weakens a test.
+- I4: auth and access-policy code and config.
+- Data at least 1: migrations. Security at least 1: lockfiles and dependency
+  manifests.
 
-- error rate ≤ baseline × 1.2 (and no new error signature);
-- p95 latency ≤ baseline × 1.2;
-- zero crash loops or restart storms; health checks green;
-- integration suite green on the lane's install;
-- run cost per hour ≤ baseline × 1.2;
-- product numbers the project names (sign-ups, job success) not down > 5%.
+Review flow: the author states the class in the PR. Peer Reviewer's review
+states the class it finds. If they differ, Peer Reviewer requests changes and
+the author relabels to the higher class. A raised class restarts the lane path
+and the soak clock for anything already deployed.
 
-A signal with no data is **unknown**, and unknown blocks promotion (Colony).
+PROPOSED: a classifier that applies the path rules as a local gate (Colony has
+no feature GitHub Actions). The Chief of Staff would own it and its rule file.
+Until it exists, the author and Peer Reviewer apply the rules by hand.
 
-**Error budget.** If a service has used more than 50% of its 30-day error budget,
-only fixes for that budget promote to main until it recovers.
+## 5. Soak and promotion signals
 
-## 5. Delegated authority
+The gate that exists today: local gates and CI green, Flux reports Ready and
+its health checks pass within the project's rollout deadline, and a read-only
+smoke check passes. Prod checks are read-only smoke only, because an
+integration suite can write data or send messages.
 
-Authority comes from both the impact class and the project's Colony maturity at
-the **runtime** stage. Autonomous canary promotion needs demonstrated L6 (gates
-and recovery paths); below L6, every canary → main step waits for the Owner.
+Minimum soak (adopted with the lane paths, since it only adds waiting):
 
-| Step | I0 | I1 | I2 | I3 |
-| --- | --- | --- | --- | --- |
-| Deploy to dev | n/a | owner agent | owner agent | owner agent |
-| dev → canary | n/a | owner agent after Peer Reviewer approves the PR | owner agent after Peer Reviewer | owner agent after Peer Reviewer, Owner informed |
-| canary → main (release PR) | Owner merge (today); fast path proposed | **Owner** | **Owner** | **Owner** |
-| main → prod digest | Foreman after Peer Reviewer (unchanged) | same | same | same |
-| Roll back a lane | owner agent | owner agent | owner agent | owner agent, Owner told at once |
+| Class | dev soak | canary soak (once a canary exists) |
+| --- | --- | --- |
+| I0 | none | none |
+| I1 | 2 h including one load run or one full job cycle | 2 h including one full job cycle |
+| I2 | 24 h including a load run | 24 h including the daily peak |
+| I3 | 24 h including a load run | 72 h including a weekday peak |
 
-- Merges into feature, integration and `release/*` branches follow the current
-  feature rule: Peer Reviewer approves with no changes requested, checks green,
-  a nonauthor integrates.
-- Budgets are capped at the delegated amount; going past it is tier C.
-- An agent never promotes its own change on its own review. Author ≠ approver.
+"Daily peak" is the busiest hour of the last 7 days; "weekday peak" is the
+same, for weekdays only.
 
-## 6. Rollback
+PROPOSED signals. No project has a source for them yet. Each one is adopted
+for a project only when the project names its source and owner:
 
-Automatic rollback fires on any of:
+- error rate at most the larger of baseline times 1.2 and baseline plus 0.1
+  percentage points, with no new error signature (an error type and code
+  location not seen in prod in the last 7 days);
+- p95 latency at most the larger of baseline times 1.2 and baseline plus 50 ms;
+- run cost per hour at most baseline times 1.2, with a floor of one dollar;
+- the product numbers the project names are not down more than 5%.
 
-- a promotion signal outside threshold for 10 minutes in canary, 5 minutes in prod;
-- post-deploy smoke or integration suite red;
-- error-budget burn rate over 10× for 5 minutes;
-- a crash loop on the new revision.
+A missing signal is unknown and never counts as a pass. An error-budget freeze
+needs an SLO first: once a project defines one, using more than 50% of the
+30-day budget lets only fixes for that budget promote.
 
-**Who:** the lane's owner agent; for prod digests, Foreman. **How:** `git revert`
-of the overlay change that promoted the digest, so Flux returns to the last
-known-good digest. Code changes are reverted the same way; a fix rides on top
-only after the revert is green. I3 changes must use expand/contract migrations
-so an image revert never needs a data revert.
+## 6. Delegated authority
 
-Dev and canary rollbacks are tier A. A prod rollback is a live production change
-(hard limit 3), so today it is tier C. This policy proposes a pre-approved
-control: Foreman may revert a prod digest to the immediately previous digest
-with no data migration attached, then report (tier B). **Needs Owner approval.**
+| Step | Today | PROPOSED |
+| --- | --- | --- |
+| Deploy to dev or canary | Owner (hard limit 3) | Owner agent, for a project at runtime L6 |
+| dev to canary | Owner | Owner agent after Peer Reviewer approves, for a project at runtime L6 |
+| Merge into feature, integration or release branches | PRINCIPLES.md section 6: the author merges after Peer Reviewer approves (this wins over Colony's nonauthor integrator) | Unchanged |
+| Release PR to main | Owner | Unchanged |
+| Move prod (pin-bump or overlay PR) | Owner | Unchanged; release controller auto-merge awaits an Owner answer |
+| Roll back prod | Owner-merged PR, tier C (PRINCIPLES.md section 12, step 3) | Automatic, see below |
 
-## 7. Main fast path for I0 changes
+PROPOSED rollback, which needs the section 11 step 3 control evidence and
+amends the tier C in section 12, step 3:
 
-Owner intent: small, non-consequential changes merge straight to main, with a
-revert if integration tests fail. Colony keeps release-to-main human-only, so
-**Colony wins**: until the Owner changes that rule, I0 changes ride the next
-release PR. The proposal, if the Owner approves it:
+- Triggers: a signal outside threshold for 10 minutes in canary, or for at
+  least one alarm check interval in prod; a failed smoke check; a crash loop.
+- Windows start once the rollout is Ready or its deadline has passed. A
+  project's decided values win (rollout deadline, outside-alarm timing,
+  shut-off retry).
+- The revert goes to the last known-good pin: the previous pin that passed its
+  soak. One promotion per commit, so a revert takes nothing else with it.
+- After a migration, an image-only revert is allowed only if expand/contract
+  held. Otherwise stop and forward-fix at tier C. The contract (drop) step is
+  I4.
 
-1. Eligible only if every factor is 0 except at most one 1, and no path rule fires.
-2. A PR straight to `main`, ready for review, checks green, Peer Reviewer
-   approves, nonauthor merges. No release branch.
-3. The integration suite runs on `main` after every merge (or every 15 minutes).
-   If it goes red and the I0 merge is in the failing window, the integrator
-   reverts it at once (tier A), then the author fixes forward on a new PR.
-4. Any I0 revert for a defect is an incident for that agent (section 8).
+PROPOSED A/B tests, once a canary exists: own data store or read-only prod
+data, flag off in prod, traffic within the canary cap, no external sends, and a
+stop rule with an end date, a named metric and a minimum sample size.
 
-## 8. Mis-classification and tightening
+## 7. The lane-decision trail (adopted)
 
-How it is caught:
+Agents read the trail instead of messaging each other. The knowledge index
+indexes it.
 
-- path rules and Peer Reviewer re-scoring before merge;
-- a rollback, hotfix or escaped defect whose real impact is above the class used;
-- the weekly review (Colony "measure benefit") comparing class with outcome.
+- The PR body's Risk and Rollback section states the six scores, the class, the
+  lane path, and each lane step with its start, end and result.
+- Labels: `impact:I0` to `impact:I4`, and `lane:dev`, `lane:canary` or
+  `lane:main`.
+- The overlay or pin commit that moved a lane.
 
-What happens (PRINCIPLES.md section 12):
+Cost today: `tools/turn-cost-ledger` covers Codex turns only, one row per
+`(session_id, turn_id)`, with model, tokens and agent wall clock. Cost comes
+from `api_equivalent_usd` when present, otherwise from models.dev API rates. A
+daily `--since-last-run` run reconciles missed turns. The ledger output stays
+private; the tool is public.
 
-- An under-classified change that reached users is an incident for the author
-  in that class of change: its tier drops one step at once.
-- Under-scoring caught before merge is not an incident, but is logged. Two in
-  30 days for one agent → that agent's changes start one class higher until an
-  Owner-merged PR restores it.
-- The lesson lands on the layer that owns it (Colony L7): a missed path becomes
-  a new path rule, a missed signal becomes a new threshold, a weak test becomes
-  a stronger test. A note in a prompt does not count.
+PROPOSED ledger extension: a PR and lane-step key, human wall-clock time, and
+agents other than Codex.
 
-## 9. The trail and the cost log
+## 8. Mis-classification
 
-The lane decision lives in the world, not in messages (stigmergy):
+Caught by the path rules, by Peer Reviewer's class check, and by escaped
+defects. A merge reverted for a defect is already an incident (PRINCIPLES.md
+section 12).
 
-- PR labels `impact:I0`…`impact:I3` and `lane:dev|canary|main`;
-- a **Lane decision** block in the PR body: six scores, class, path, soak start
-  and end, signal readings, promote or rollback, who acted;
-- the Flux overlay commit that moved the digest.
+PROPOSED:
 
-Agents read these instead of announcing changes to each other. Steve indexes them.
+- An under-classified change that reached users is an incident for the action
+  "promote Ix changes", where Ix is the class it was given.
+- Two under-scores caught before merge in 30 days start that agent's changes
+  one class higher, until an Owner-merged PR restores it.
+- The Chief of Staff runs a weekly review comparing each change's class with
+  its outcome. This is separate from the section 11 touchpoint review.
 
-Each lane step also records its cost in the existing turn-cost ledger
-(`tools/turn-cost-ledger`), not in a new register: model, input, cache-read,
-cache-write and output tokens, agent and human wall-clock time, priced at
-models.dev API rates. The ledger keys rows by PR and lane step, so cost rolls up
-by action, turn, work package, workstream and release. The ledger stays private.
+Whichever applies, the fix is a new path rule, a new threshold or a stronger
+test, added in the PR that closes the incident record (Colony L7). A note in a
+prompt does not count.
 
-## 10. Decision table
+## 9. Decision table
 
-| Change | Class | Path | Who promotes to main |
-| --- | --- | --- | --- |
-| README fix, test-only change | I0 | main (fast path if approved; else next release) | Owner merge |
-| Off-by-one fix in one handler | I1 | canary 2 h → main | Owner merge |
-| New feature behind a default-off flag | I2 | dev → canary 24 h → main | Owner merge |
-| A/B test of a new ranking | I2 | canary only, flag off in prod | experiment ends in canary |
-| Additive DB column with backfill | I3 | dev 24 h → canary 72 h → main | Owner merge |
-| Rotate an API key, drop a table | I4 | none until the Owner decides | Owner |
+| Change | Class | Path |
+| --- | --- | --- |
+| README fix, new test | I0 | Next release PR |
+| Lockfile-only dependency bump | I1 | dev, then main |
+| Off-by-one fix in one handler | I1 | dev or canary, then main |
+| New feature behind a default-off flag | I2 | dev, then canary, then main |
+| Additive DB column with backfill | I3 | dev, then canary (long soak), then main |
+| Auth flow change, key rotation, dropped table | I4 | Owner decides first |
 
-### A/B tests in canary
+## 10. PROPOSED open questions (for the Owner)
 
-Allowed when production stays isolated: the canary has its own data store (or
-read-only access to prod data), the flag is off in prod, traffic ≤ the canary
-cap, no external sends, and the experiment has a stop rule, an end date and a
-named metric. Results go in the PR. Shipping the winner is a new change, scored
-from scratch.
-
-## 11. Changes to existing rules
-
-Each needs the Owner's approval (merge of this file):
-
-1. **I0 fast path to main** without a release PR (section 7). Changes Colony
-   item 7 and PRINCIPLES.md section 6 (release PRs are Owner-merged).
-2. **Agents deploy to dev and canary overlays** on their own. Today any live
-   cluster change is hard limit 3 and Colony item 8 needs separate authority.
-3. **Automatic prod rollback** to the previous digest as tier B (section 6).
-4. **Higher-class-wins scoring and incident on under-classification** add a new
-   incident trigger to PRINCIPLES.md section 12.
-
-Unchanged: Owner merges release PRs; Foreman auto-merges image promotion PRs
-after checks and Peer Reviewer; feature PRs merge after Peer Reviewer approves
-with checks green; budgets stay capped.
-
-## 12. Open questions for the Owner
-
-1. **I0 straight to main?** Recommended: yes, after a 30-day shadow run where
-   agents label I0 and the Owner still merges, with zero I0 reverts for a defect.
-2. **Agents deploy to dev and canary without asking?** Recommended: yes, for
-   projects at Colony L6 runtime, with automatic rollback attached.
-3. **Pre-approve prod rollback to the previous digest?** Recommended: yes, image
-   and digest only, never with a data migration.
-4. **Can I1 canary → main skip the Owner later?** Recommended: not yet. Revisit
-   after 50 I1 promotions with no escaped defect (PRINCIPLES.md section 11).
-5. **Soak times and thresholds** (section 4)? Recommended: adopt as written,
-   review after the first month of data.
+- Q2. Should agents deploy to dev and canary? Recommended: yes, one project per
+  PR, once it shows runtime L6, with automatic rollback attached.
+- Q3. Should a rollback to the last known-good prod pin be pre-approved?
+  Recommended: yes, image-only, never with a data migration.
+- Q4. Can I1 skip the Owner from canary to main later? Recommended: not yet;
+  revisit after 50 I1 promotions with no escaped defect.
+- Q5. Are the soak times and thresholds right? Recommended: adopt as written
+  and review after the first month of data.
