@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "tools/codex-turn-events/**"
+      - "tools/codex-grok-bridge/**"
       - ".github/workflows/codex-turn-events.yml"
   push:
     branches: [main]
     paths:
       - "tools/codex-turn-events/**"
+      - "tools/codex-grok-bridge/**"
       - ".github/workflows/codex-turn-events.yml"
 
 permissions:
@@ -26,3 +28,5 @@ jobs:
       # Stdlib only; the runner's python3 is enough.
       - name: make quality-gates
         run: make quality-gates
+      - name: check codex-grok-bridge
+        run: make -C tools/codex-grok-bridge quality-gates
