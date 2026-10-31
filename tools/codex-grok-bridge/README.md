@@ -12,10 +12,37 @@ the parser treats the full message as informational text with no header.
 
 `cg_log.py` stores message state in an atomic, locked TSV log. Each sequence is
 recorded once and can move from `received` to `routed` to `acked` to `done`, or
-to `failed`. A legacy last-sequence file can seed the cursor on first use.
+to `failed` from any nonterminal state. New records must start as `received`;
+`received_at` holds the receive timestamp. Text fields use CSV escaping with a
+TSV delimiter, including embedded tabs, quotes, and newlines.
+
+The cursor starts immediately before the lowest stored sequence (zero for an
+empty log). It advances only through consecutive `routed`, `acked`, or `done`
+rows; missing, `received`, and `failed` rows stop it. For example, sequence 4
+`received` and sequence 5 `routed` return cursor 3.
+
+A legacy last-sequence file can seed an empty log on first use. Values must be
+non-negative ASCII decimal integers and are stored in canonical decimal form.
+An unconsumed legacy value below the existing cursor is rejected. The persisted
+migration row marks the legacy file as consumed, so leaving that file in place
+does not stop later progress. `cursor()` writes only to persist this seed once;
+this lets a later reader recover the cursor without the legacy file. It also
+creates the parent directory and lock file when needed. Ordinary cursor reads
+do not rewrite the TSV.
+
+Log and lock files are created with mode `0600`. Writes sync the temporary file,
+replace the log atomically, then sync the parent directory. POSIX `fcntl` is
+required. `flock` is unreliable on NFS; use a local filesystem with cooperating
+writers. Invalid headers, rows, sequences, duplicate sequences, and unknown
+states raise `LogError` without rewriting the log.
 
 ## Checks
 
 ```shell
 make check
 ```
+
+The repository workflow runs `make quality-gates` from this folder. It includes
+`make check`; there is no root quality-gates target. All checks run offline.
+The scenarios in `features/message_log.feature` are implemented by the named
+`unittest` methods in `tests/test_cg_log.py` and run with `make check`.

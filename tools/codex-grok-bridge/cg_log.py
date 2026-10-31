@@ -7,7 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
-FIELDS = ("seq", "req_id", "received", "routed_to", "acked", "state", "ack_msg_id", "note")
+FIELDS = ("seq", "req_id", "received_at", "routed_to", "acked", "state", "ack_msg_id", "note")
 TRANSITIONS = {
     "received": {"routed", "failed"},
     "routed": {"acked", "failed"},
@@ -31,20 +31,40 @@ class MessageLog:
 
     def _locked(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        lock = self.lock_path.open("a+")
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        lock = os.fdopen(fd, "a+")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        except BaseException:
+            lock.close()
+            raise
         return lock
 
     def _read(self) -> list[dict[str, str]]:
-        if not self.path.exists() or not self.path.stat().st_size:
+        if not self.path.exists():
             return []
-        with self.path.open(newline="", encoding="utf-8") as stream:
-            reader = csv.DictReader(stream, delimiter="\t")
-            if reader.fieldnames != list(FIELDS):
-                raise LogError("invalid log header")
-            rows = list(reader)
-        if any(None in row or set(row) != set(FIELDS) for row in rows):
-            raise LogError("invalid log row")
+        try:
+            with self.path.open(newline="", encoding="utf-8") as stream:
+                reader = csv.DictReader(stream, delimiter="\t", strict=True)
+                if reader.fieldnames != list(FIELDS):
+                    raise LogError("invalid log header")
+                rows = list(reader)
+        except (csv.Error, UnicodeError) as error:
+            raise LogError("invalid log encoding or TSV") from error
+        seen = set()
+        for row in rows:
+            if None in row or any(value is None for value in row.values()):
+                raise LogError("invalid log row")
+            value = row["seq"]
+            if not value.isascii() or not value.isdecimal():
+                raise LogError("invalid log sequence")
+            seq = int(value)
+            if seq in seen:
+                raise LogError("duplicate log sequence")
+            if row["state"] not in TRANSITIONS:
+                raise LogError("invalid log state")
+            seen.add(seq)
+            row["seq"] = str(seq)
         return rows
 
     def _write(self, rows: list[dict[str, str]]) -> None:
@@ -57,36 +77,49 @@ class MessageLog:
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, self.path)
+            directory = os.open(self.path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
 
     def _migrate(self, rows: list[dict[str, str]]) -> list[dict[str, str]]:
-        if rows or self.legacy_last_seq is None or not self.legacy_last_seq.exists():
+        if (self.legacy_last_seq is None or not self.legacy_last_seq.exists()
+                or any(row["note"] == "migrated legacy cursor" and row["state"] == "done"
+                       and not row["req_id"] for row in rows)):
             return rows
         value = self.legacy_last_seq.read_text(encoding="utf-8").strip()
         if not value.isascii() or not value.isdecimal():
             raise LogError("invalid legacy sequence")
-        self._write([])
-        return [{"seq": value, "req_id": "", "received": "", "routed_to": "", "acked": "",
+        if int(value) < self._cursor(rows):
+            raise LogError("legacy sequence is lower than existing cursor")
+        if rows:
+            return rows
+        return [{"seq": str(int(value)), "req_id": "", "received_at": "", "routed_to": "", "acked": "",
                  "state": "done", "ack_msg_id": "", "note": "migrated legacy cursor"}]
 
-    def record(self, seq: int, req_id: str, received: str, routed_to: str = "", acked: str = "",
+    def record(self, seq: int, req_id: str, received_at: str, routed_to: str = "", acked: str = "",
                state: str = "received", ack_msg_id: str = "", note: str = "") -> None:
         """Add a sequence once. An existing sequence is left unchanged."""
         if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
             raise LogError("sequence must be a non-negative integer")
-        if state not in TRANSITIONS:
-            raise LogError("invalid state")
-        values = (req_id, received, routed_to, acked, ack_msg_id, note)
+        if state != "received":
+            raise LogError("initial state must be received")
+        values = (req_id, received_at, routed_to, acked, ack_msg_id, note)
         if any(not isinstance(value, str) for value in values):
             raise LogError("log fields must be text")
         lock = self._locked()
         try:
-            rows = self._migrate(self._read())
+            original = self._read()
+            rows = self._migrate(original)
             if any(row["seq"] == str(seq) for row in rows):
+                if rows != original:
+                    self._write(rows)
                 return
-            rows.append(dict(zip(FIELDS, (str(seq), req_id, received, routed_to, acked, state, ack_msg_id, note))))
+            rows.append(dict(zip(FIELDS, (str(seq), req_id, received_at, routed_to, acked, state, ack_msg_id, note))))
             rows.sort(key=lambda row: int(row["seq"]))
             self._write(rows)
         finally:
@@ -94,6 +127,12 @@ class MessageLog:
 
     def transition(self, seq: int, state: str, *, ack_msg_id: str | None = None, note: str | None = None) -> None:
         """Move a row forward by one allowed state edge."""
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
+            raise LogError("sequence must be a non-negative integer")
+        if not isinstance(state, str) or state not in TRANSITIONS:
+            raise LogError("invalid state")
+        if any(value is not None and not isinstance(value, str) for value in (ack_msg_id, note)):
+            raise LogError("log fields must be text")
         lock = self._locked()
         try:
             rows = self._migrate(self._read())
@@ -111,13 +150,25 @@ class MessageLog:
         finally:
             lock.close()
 
+    @staticmethod
+    def _cursor(rows: list[dict[str, str]]) -> int:
+        ordered = sorted(rows, key=lambda row: int(row["seq"]))
+        cursor = max(0, int(ordered[0]["seq"]) - 1) if ordered else 0
+        for row in ordered:
+            seq = int(row["seq"])
+            if seq > cursor + 1 or row["state"] not in {"routed", "acked", "done"}:
+                break
+            cursor = seq
+        return cursor
+
     def cursor(self) -> int:
-        """Return the highest routed-or-complete sequence."""
+        """Return the contiguous routed cursor; persist a legacy seed once."""
         lock = self._locked()
         try:
-            rows = self._migrate(self._read())
-            if not self.path.exists():
+            original = self._read()
+            rows = self._migrate(original)
+            if rows != original:
                 self._write(rows)
-            return max((int(row["seq"]) for row in rows if row["state"] in {"routed", "acked", "done"}), default=0)
+            return self._cursor(rows)
         finally:
             lock.close()
