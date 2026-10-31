@@ -14,6 +14,16 @@ Scenario: A call the fsm-ledger never priced is flagged, not guessed
   Then est_cost_usd covers only the priced call
   And calls_unpriced is 1 and cost_complete is false
 
+Scenario: A subscription row uses api_equivalent_usd when present
+  Given a billing_mode=subscription row written by append_dict with a numeric api_equivalent_usd
+  When the ledger is generated
+  Then est_cost_usd is the api_equivalent_usd and the turn is cost-complete
+
+Scenario: A subscription row without api_equivalent_usd is unpriced, never $0
+  Given a billing_mode=subscription row written by append_dict (costTotal 0, cost_is_plan true)
+  When the ledger is generated
+  Then calls_unpriced is 1 and cost_complete is false
+
 Scenario: Malformed usage is skipped, not fatal
   Given a call whose token count is not a number and a call whose usage is not an object
   When the ledger is generated

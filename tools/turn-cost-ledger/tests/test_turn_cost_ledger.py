@@ -48,11 +48,30 @@ class TurnCostLedgerTest(unittest.TestCase):
                                                        "usage": {"input_tokens": "n/a", "output_tokens": 5}}},
             {"type": "token_usage_record", "payload": {"turn_id": "t2", "response_id": "r4", "usage": "broken"}},
         ])
+        write_jsonl(self.sessions / "2026/10/29/rollout-c.jsonl", [
+            {"type": "session_meta", "payload": {"session_id": "s3"}},
+            {"type": "turn_context", "payload": {"turn_id": "t3", "model": "gpt-6.1-sol"}},
+            {"type": "token_usage_record", "payload": {"turn_id": "t3", "response_id": "r5", "usage": usage(50, 0, 5)}},
+            {"type": "turn_context", "payload": {"turn_id": "t4", "model": "gpt-6.1-sol"}},
+            {"type": "token_usage_record", "payload": {"turn_id": "t4", "response_id": "r6", "usage": usage(50, 0, 5)}},
+        ])
+        self.append({"event_id": "codex:s1:r1", "session_id": "s1", "model": "deepseek-v4-flash",
+                     "inputTokens": 100, "outputTokens": 10, "costTotal": 0.001})
+        for rid in ("r5", "r6"):
+            self.append({"event_id": f"codex:s3:{rid}", "session_id": "s3", "model": "gpt-6.1-sol",
+                         "inputTokens": 50, "outputTokens": 5, "billing_mode": "subscription"})
+        # The committed writer drops api_equivalent_usd; the live fsm-ledger billing
+        # code adds it to subscription rows, so add it to r5's stored row the same way.
+        usage_file = next(self.ledger.glob("*/usage.jsonl"))
+        rows = [json.loads(x) for x in usage_file.read_text(encoding="utf-8").splitlines()]
+        for row in rows:
+            if row["event_id"] == "codex:s3:r5":
+                row["api_equivalent_usd"] = 0.002
+        write_jsonl(usage_file, rows)
+
+    def append(self, raw):
         with mock.patch.dict(os.environ, {"FSM_MATRICES_ROOT": str(self.ledger), "FSM_PROJECT": "proj"}):
-            result = append_dict({
-                "event_id": "codex:s1:r1", "session_id": "s1", "model": "deepseek-v4-flash",
-                "inputTokens": 100, "outputTokens": 10, "costTotal": 0.001, "harness": "codex", "cwd": "/w",
-            })
+            result = append_dict(raw | {"harness": "codex", "cwd": "/w"})
         self.assertTrue(result.get("ok"), result)
 
     def tearDown(self):
@@ -79,6 +98,14 @@ class TurnCostLedgerTest(unittest.TestCase):
     def test_malformed_usage_is_skipped_not_fatal(self):
         row = self.run_cli()["t2"]
         self.assertEqual((row["calls"], row["input_tokens"], row["output_tokens"]), (1, 0, 5))
+
+    def test_subscription_row_uses_api_equivalent_usd(self):
+        row = self.run_cli()["t3"]
+        self.assertEqual((row["est_cost_usd"], row["calls_unpriced"], row["cost_complete"]), (0.002, 0, True))
+
+    def test_subscription_row_without_api_equivalent_is_unpriced_not_zero(self):
+        row = self.run_cli()["t4"]
+        self.assertEqual((row["est_cost_usd"], row["calls_unpriced"], row["cost_complete"]), (0.0, 1, False))
 
     def test_since_takes_iso_date_and_filters_by_path_date(self):
         self.assertEqual(set(self.run_cli("--since", "2026-10-31")), {"t1"})

@@ -6,9 +6,10 @@ Tokens come from Codex rollouts (~/.codex/sessions/**/*.jsonl):
   event_msg/task_complete.duration_ms + time_to_first_token_ms.
 Cost is NOT re-priced here: costTotal is joined from the fsm-ledger
 usage.jsonl files (~/.agents/status-matrices/*/usage.jsonl) on the event_id
-the Codex hook writes, "codex:{session_id}:{response_id}". Those rows are
-priced at API rates from the models.dev snapshot. A call with no priced row
-is counted in calls_unpriced and the turn's cost_complete is false.
+the Codex hook writes, "codex:{session_id}:{response_id}". Per row: a numeric
+api_equivalent_usd wins; else a cost_is_plan (subscription) row is unpriced,
+never $0; else costTotal (API rates from the models.dev snapshot). A call with
+no priced row is counted in calls_unpriced and the turn's cost_complete is false.
 
 Stdlib only. Output: CSV (default) or JSONL on stdout.
 """
@@ -59,15 +60,35 @@ def _records(path: Path):
                 yield rec
 
 
+def _number(value) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def row_cost(row: dict) -> float | None:
+    """API-rate USD for one fsm-ledger row, or None if it is not priced.
+
+    Subscription rows carry costTotal=0 with cost_is_plan=true; that 0 is the
+    plan's marginal cost, not the API rate, so it must never count as priced.
+    """
+    api_equivalent = _number(row.get("api_equivalent_usd"))
+    if api_equivalent is not None:
+        return api_equivalent
+    if row.get("cost_is_plan") is True:
+        return None
+    return _number(row.get("costTotal"))
+
+
 def load_prices(ledger_root: Path) -> dict[str, dict]:
     """event_id -> {cost, pricing_date, source} from priced fsm-ledger rows."""
     prices: dict[str, dict] = {}
     for usage in sorted(ledger_root.glob("*/usage.jsonl")):
         for row in _records(usage):
-            eid, cost = row.get("event_id"), row.get("costTotal")
-            if eid and isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            eid, cost = row.get("event_id"), row_cost(row)
+            if eid and cost is not None:
                 prices[str(eid)] = {
-                    "cost": float(cost),
+                    "cost": cost,
                     "pricing_date": str(row.get("pricing_date") or ""),
                     "source": str(row.get("source_url") or ""),
                 }

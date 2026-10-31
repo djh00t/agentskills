@@ -5,10 +5,15 @@ Per-turn cost and wall-clock ledger for Codex CLI, built on data that already ex
 - **Tokens and model**: Codex rollouts in `~/.codex/sessions/**/*.jsonl`
   (`turn_context.model`, one `token_usage_record` per model call).
 - **Wall clock**: `event_msg/task_complete.duration_ms` and `time_to_first_token_ms`.
-- **Cost**: `costTotal` joined from the fsm-ledger files
+- **Cost**: joined from the fsm-ledger files
   (`~/.agents/status-matrices/*/usage.jsonl`) on the `event_id` the Codex hook writes,
-  `codex:{session_id}:{response_id}`. Codex rows there are already priced at API rates
-  from the models.dev snapshot. This tool does not re-price anything.
+  `codex:{session_id}:{response_id}`. This tool does not re-price anything. Per row:
+  1. a numeric `api_equivalent_usd` is used when present (subscription rows from the
+     fsm-ledger billing code);
+  2. otherwise a `cost_is_plan` row (`billing_mode=subscription`, `costTotal=0`) is
+     **unpriced**: the 0 is the plan's marginal cost, not the API rate, so it is never
+     counted as $0;
+  3. otherwise `costTotal`, priced at API rates from the models.dev snapshot.
 
 Bad token counts count as 0, and a call whose `usage` is not an object is skipped.
 A call the fsm-ledger has not priced yet is counted in `calls_unpriced`, and the turn
