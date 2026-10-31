@@ -38,6 +38,8 @@ An agent may hold several roles, but never authors and approves the same change.
 
 Pick the tier from the action's worst plausible outcome, not from how confident
 you are. Messages and posts are never tier A or B (see hard limit 4).
+Coordination work in the Owner's repos (commits, branches, PRs, reviews,
+comments and issues) is not a message or post.
 
 - **A. Act.** When: reversible, in scope, within budget, no hard limit touched,
   and not a message or post. Do it, and record it where the work lives (issue,
@@ -86,17 +88,19 @@ real impact, or a false "done". After one:
 
 ## 4. Hard limits (always the Owner's call)
 
-These stay human-gated at every tier until the Owner, in a merged PR, says
-otherwise:
+These stay human-gated at every tier until a PR the Owner merged says otherwise.
+That PR must give a time or milestone limit and an undo path, as in section 3
+(Earned autonomy).
 
 1. Spending money, or raising a budget beyond the amount delegated.
 2. Security, credential, secret or access-policy changes, including creating,
    rotating, revealing or sharing a credential.
 3. Release merges, and live production or cluster changes, without the Owner's
    approval.
-4. Every external send or post: email, chat, social posts, forms, issues or any
-   message to a person or service outside the agent system. Only GitHub PR
-   reviews and PR comments are exempt.
+4. Every external send or post: email, chat, social posts, forms, or any message
+   to a person or service outside the agent system. The only exemption is
+   coordination work in repos the Owner owns: commits, branches, PRs, reviews,
+   comments and issues. The same actions on any other repo stay a hard limit.
 5. Every delete: data, files, records, branches, accounts or resources.
 6. Anything else that cannot be undone.
 
@@ -136,9 +140,11 @@ replace the owner. Never run two writers on the same resource.
 
 ## 6. Peer review is the gate
 
-- Feature PRs: an agent may merge once Peer Reviewer approves with no changes
-  requested, all required checks are green and all feedback is resolved. The
-  author never approves its own work.
+- Feature PRs: the authoring agent may merge once Peer Reviewer approves with no
+  changes requested, all required checks are green and all feedback is resolved.
+  The author never approves its own work.
+- Dependabot PRs: Peer Reviewer may merge a Dependabot PR that it approved, once
+  all required checks are green.
 - Release PRs (anything that ships to users or production): the Owner merges,
   for now. The PR goes to the decision queue only after Peer Reviewer has
   approved it.
@@ -156,12 +162,13 @@ replace the owner. Never run two writers on the same resource.
 
 ## 8. Asking a human
 
-Use these rules when tier C applies.
+Use these rules when tier C applies. Write each card in ASD-STE100 Simplified
+Technical English.
 
 - Ask one question at a time.
 - Use a multiple-choice card.
 - Give a recommendation on the card.
-- For each option, write the result in plain words.
+- For each option, write the result.
 - Write what happens if the Owner does not answer.
 - Give each approval a time limit or a milestone limit.
 - Write the undo path for each option.
@@ -201,7 +208,8 @@ The path to move a class of hard-limit action out of human hands:
 3. **Prove.** Run the control with the human still gating, and show it would
    have caught past mistakes.
 4. **Propose.** Open a PR that moves that class of action to tier B with the
-   control attached. The Owner decides.
+   control attached. Give the PR a time or milestone limit and an undo path, as
+   section 3 (Earned autonomy) requires. The Owner decides.
 
-A hard limit is removed only by the Owner merging such a PR. Each one removed
-should make the system faster and no less safe.
+A hard limit is removed only by a PR the Owner merged, for its stated limit.
+Each one removed should make the system faster and no less safe.
