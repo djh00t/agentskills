@@ -4,10 +4,10 @@
 Tokens come from Codex rollouts (~/.codex/sessions/**/*.jsonl):
   turn_context.model, token_usage_record.usage (one row per model call),
   event_msg/task_complete.duration_ms + time_to_first_token_ms.
-Cost is NOT re-priced here: it is joined by response_id from the fsm-ledger
-usage.jsonl files (~/.agents/status-matrices/*/usage.jsonl), which already
-price each call from the models.dev snapshot: api_equivalent_usd for
-subscription-billed calls, else costTotal (never a plan amount). A call the ledger never saw
+Cost is NOT re-priced here: costTotal is joined from the fsm-ledger
+usage.jsonl files (~/.agents/status-matrices/*/usage.jsonl) on the event_id
+the Codex hook writes, "codex:{session_id}:{response_id}". Those rows are
+priced at API rates from the models.dev snapshot. A call with no priced row
 is counted in calls_unpriced and the turn's cost_complete is false.
 
 Stdlib only. Output: CSV (default) or JSONL on stdout.
@@ -18,6 +18,7 @@ import argparse
 import csv
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 FIELDS = [
@@ -35,6 +36,18 @@ USAGE_KEYS = {
 }
 
 
+def as_int(value) -> int:
+    """Token count or 0; never raises on bad input (same rule as fsm-ledger)."""
+    try:
+        return int(value) if value is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def event_id(session_id: str, response_id: str) -> str:
+    return f"codex:{session_id}:{response_id}"
+
+
 def _records(path: Path):
     with path.open(encoding="utf-8", errors="ignore") as stream:
         for line in stream:
@@ -47,18 +60,13 @@ def _records(path: Path):
 
 
 def load_prices(ledger_root: Path) -> dict[str, dict]:
-    """response_id -> {cost, pricing_date, source_url} from fsm-ledger rows."""
+    """event_id -> {cost, pricing_date, source} from priced fsm-ledger rows."""
     prices: dict[str, dict] = {}
     for usage in sorted(ledger_root.glob("*/usage.jsonl")):
         for row in _records(usage):
-            rid = row.get("response_id")
-            # Subscription rows carry the plan in costTotal; the API-rate
-            # estimate David wants lives in api_equivalent_usd.
-            cost = row.get("api_equivalent_usd")
-            if cost is None and not row.get("cost_is_plan"):
-                cost = row.get("costTotal")
-            if rid and isinstance(cost, (int, float)) and not isinstance(cost, bool):
-                prices[str(rid)] = {
+            eid, cost = row.get("event_id"), row.get("costTotal")
+            if eid and isinstance(cost, (int, float)) and not isinstance(cost, bool):
+                prices[str(eid)] = {
                     "cost": float(cost),
                     "pricing_date": str(row.get("pricing_date") or ""),
                     "source": str(row.get("source_url") or ""),
@@ -93,12 +101,15 @@ def turns_from_rollout(path: Path, prices: dict[str, dict]) -> list[dict]:
             t["cwd"] = str(data.get("cwd") or t["cwd"])
             t["started_at"] = t["started_at"] or str(rec.get("timestamp") or "")
         elif kind == "token_usage_record" and data.get("turn_id"):
+            usage = data.get("usage")
+            if not isinstance(usage, dict):
+                continue
             t = turn(str(data["turn_id"]))
-            usage = data.get("usage") or {}
             for out_key, src_key in USAGE_KEYS.items():
-                t[out_key] += int(usage.get(src_key) or 0)
+                t[out_key] += as_int(usage.get(src_key))
             t["calls"] += 1
-            price = prices.get(str(data.get("response_id") or ""))
+            sid = t["session_id"] or session_id
+            price = prices.get(event_id(sid, str(data.get("response_id") or "")))
             if price is None:
                 t["calls_unpriced"] += 1
             else:
@@ -125,20 +136,29 @@ def turns_from_rollout(path: Path, prices: dict[str, dict]) -> list[dict]:
     return rows
 
 
+def path_date(path: Path, sessions: Path) -> date | None:
+    """Date from a rollout path like sessions/2026/10/31/rollout-*.jsonl."""
+    parts = path.relative_to(sessions).parts[:3]
+    try:
+        return date(*(int(x) for x in parts))
+    except (TypeError, ValueError):
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     home = Path.home()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--sessions", type=Path, default=home / ".codex" / "sessions")
     ap.add_argument("--ledger-root", type=Path, default=home / ".agents" / "status-matrices")
-    ap.add_argument("--since", default="", help="only rollouts whose path date >= YYYY/MM/DD")
+    ap.add_argument("--since", type=date.fromisoformat, default=None,
+                    help="only rollouts whose path date (YYYY/MM/DD) is on or after this ISO date, e.g. 2026-10-31")
     ap.add_argument("--format", choices=["csv", "jsonl"], default="csv")
     args = ap.parse_args(argv)
 
     prices = load_prices(args.ledger_root)
     rows = []
     for path in sorted(args.sessions.rglob("*.jsonl")):
-        rel = path.relative_to(args.sessions).parent.as_posix()
-        if args.since and rel < args.since:
+        if args.since and (path_date(path, args.sessions) or date.min) < args.since:
             continue
         rows.extend(turns_from_rollout(path, prices))
     rows.sort(key=lambda r: r["started_at"])
