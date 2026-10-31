@@ -7,16 +7,17 @@ Merging this file adopts:
 - the impact classification with its minimum lane path (section 3) and minimum
   soak (section 5), the catch rules (section 4) and the lane-decision trail
   (section 7). These add checks and grant no authority;
-- the promotion signal thresholds in section 5 (Q5), to be reviewed by
-  30 Nov 2026;
-- three grants of authority, each only within the limits in section 6: agent
-  deploys to dev and canary (Q2), image-only prod rollback (Q3), and I1 release
-  PRs merged to main without the Owner (Q4).
+- the Q5 soak times and promotion thresholds in section 5, with the additions
+  labelled there;
+- three time-limited grants, each only within section 6: agent deploys to dev
+  and canary (Q2), a prod pin-revert PR (Q3), and I1 release PRs merged by
+  their author (Q4).
 
-The Owner answered Q1 to Q5 on decision cards on 31 Oct 2026 (section 10). A
-card answer approves one action only (PRINCIPLES.md section 4), so the Q2 to Q5
-answers take effect only when the Owner merges this file. That merge is the
-Owner-merged PR that PRINCIPLES.md sections 3 and 4 require.
+The Owner answered Q1 to Q5 on 31 Oct 2026 (section 10). A card answer
+approves one action only (PRINCIPLES.md section 4), so the grants exist only
+as Owner-merged delegations in the colony charter, under PRINCIPLES.md
+sections 3 and 4. This PR is paired with the colony PR that adds them. The
+grants take effect only when the Owner has merged both.
 
 Everything still marked PROPOSED is not adopted. Each further widening comes
 later as its own PR under PRINCIPLES.md section 3 (Earned autonomy): one agent
@@ -24,11 +25,7 @@ or one project, with evidence, a time or milestone limit and an undo path. A
 hard-limit class first needs the section 11 step 3 control, run with the Owner
 still gating.
 
-Precedence, highest first: PRINCIPLES.md, then Colony, then this file. One
-deliberate exception: the Q4 grant (section 6) lets an I1 release PR reach main
-without a human merge, which Colony's "release-to-main remains human-only"
-would otherwise forbid. The Owner chose this on 31 Oct 2026, and merging this
-file records that choice.
+Precedence, highest first: PRINCIPLES.md, then Colony, then this file.
 
 ## 1. Sources
 
@@ -36,7 +33,9 @@ Core philosophy: the Colony working method ("Colony workflow and measurement
 handoff", 30 Oct 2026). This file depends on these Colony rules only:
 
 - "Feature/integration-to-release is permitted within the existing scope;
-  release-to-main remains human-only."
+  release-to-main remains human-only." The Q4 grant (section 6) is an
+  exception the Owner chose (decision item 21). It is recorded in the colony
+  charter as delegation `release-lanes-q4-i1-release-merge`, not by this file.
 - "No unauthorized deployment, production upload, credentials, security/access
   changes or financial execution."
 - Maturity L3, falsifiable verification: "Acceptance is tested against
@@ -48,8 +47,7 @@ handoff", 30 Oct 2026). This file depends on these Colony rules only:
   insufficient."
 
 Colony has no installed runtime maturity assessor yet, so no project can show
-L6 at runtime today. Until one can, the Q2 grant (section 6) applies to no
-project.
+L6 at runtime today.
 
 The Owner's stated intent (30 Oct 2026) is that once a project has launched,
 the merge to main is the only human gate, unless spending goes past the
@@ -74,7 +72,7 @@ Supporting inspiration, not authority:
 | --- | --- | --- |
 | dev | Feature or integration branch on the dev overlay | Anything unproven that changes how the app works or integrates |
 | canary | Release candidate on a canary overlay with its own data and capped real traffic | Soak, small fixes, A/B tests |
-| main | Release PR merged to main by the Owner (or by its author for an I1 release PR, section 6), then a reviewed pin-bump or overlay PR, merged by the Owner, moves prod to the new pinned commit or digest | Production |
+| main | Release PR merged to main (by the Owner, except as section 6 grants), then a reviewed pin-bump or overlay PR, merged by the Owner (except the section 6 Q3 pin-revert), moves prod to the new pinned commit or digest | Production |
 
 No project has a canary today; the release controller's canary ring waits on an
 Owner decision. Until a project has one, its changes go dev then main, using
@@ -103,9 +101,7 @@ The highest matching class wins:
 | I1 small | Not I0, a total of 3 or less, no factor at 2 | dev or canary, then main |
 | I0 trivial | A total of 1 or less, Data 0, Security 0, no path rule fired | The next release PR |
 
-Every class reaches main through the release PR. The Owner merges it, except
-that a release PR whose highest class is I1 is merged by its author under the
-Q4 grant (section 6).
+Every class reaches main through the release PR. Who merges it is in section 6.
 
 The lane paths and soak apply only to deployed projects that have a release
 flow and an existing dev deploy path. Other repos record the class and follow
@@ -117,7 +113,9 @@ Path rules can raise a class, never lower it:
 
 - Owner merge whatever the score: `.github/workflows/**`, Makefile and other
   quality-gate targets, CODEOWNERS, `.flux/**`, the classifier rule file, and
-  any change that deletes, skips or weakens a test.
+  any change that deletes, skips or weakens a test. One carve-out: the Q3
+  pin-revert PR (section 6), whose diff passes the pin-only check, is not
+  forced to an Owner merge by the `.flux/**` rule.
 - I4: auth and access-policy code and config.
 - Data at least 1: migrations. Security at least 1: lockfiles and dependency
   manifests.
@@ -138,8 +136,10 @@ its health checks pass within the project's rollout deadline, and a read-only
 smoke check passes. Prod checks are read-only smoke only, because an
 integration suite can write data or send messages.
 
-Minimum soak (adopted with the lane paths, since it only adds waiting; the
-Owner confirmed these values in Q5, review by 30 Nov 2026):
+Minimum soak (adopted with the lane paths, since it only adds waiting). The
+Owner's Q5 answer, "A: Adopt as written, review in a month" (decision item 22),
+adopted the canary column. The dev column is a Chief of Staff addition; it only
+adds waiting.
 
 | Class | dev soak | canary soak (once a canary exists) |
 | --- | --- | --- |
@@ -151,61 +151,127 @@ Owner confirmed these values in Q5, review by 30 Nov 2026):
 "Daily peak" is the busiest hour of the last 7 days; "weekday peak" is the
 same, for weekdays only.
 
-Promotion signal thresholds (adopted, Q5; review by 30 Nov 2026). No project
-has a source for them yet. Each one applies to a project only once the project
-names its source and owner:
+Promotion signal thresholds (adopted, Q5). No project has a source for them
+yet. Each one applies to a project only once the project names its source and
+owner:
 
-- error rate at most the larger of baseline times 1.2 and baseline plus 0.1
-  percentage points, with no new error signature (an error type and code
-  location not seen in prod in the last 7 days);
-- p95 latency at most the larger of baseline times 1.2 and baseline plus 50 ms;
-- run cost per hour at most baseline times 1.2, with a floor of one dollar;
-- the product numbers the project names are not down more than 5%.
+- error rate at most baseline times 1.2;
+- p95 latency at most baseline times 1.2;
+- the product numbers the project names are not down more than 5%;
+- a missing signal is unknown, never counts as a pass, and blocks promotion.
 
-A missing signal is unknown and never counts as a pass. An error-budget freeze
-needs an SLO first: once a project defines one, using more than 50% of the
-30-day budget lets only fixes for that budget promote.
+Chief of Staff additions (adopted; each only adds a gate):
+
+- no new error signature (an error type and code location not seen in prod in
+  the last 7 days);
+- run cost per hour at most baseline times 1.2;
+- an error-budget freeze, once a project defines an SLO: using more than 50% of
+  the 30-day budget lets only fixes for that budget promote.
+
+PROPOSED floors, which loosen the 1.2 times rule when a baseline is low and so
+need their own Owner answer: error rate may also reach baseline plus 0.1
+percentage points; p95 may also reach baseline plus 50 ms; run cost may also
+reach one dollar per hour.
+
+Review: "review in a month" is the Owner's wording. The computed date is
+30 Nov 2026.
 
 ## 6. Delegated authority
 
 | Step | Today | PROPOSED |
 | --- | --- | --- |
-| Deploy to dev or canary | Owner agent, without asking, only for a project at Colony level 6 and only with automatic rollback attached (Q2: Owner, 31 Oct 2026, decision item 19). Any other project: Owner (hard limit 3) | Unchanged |
-| dev to canary | Owner agent after Peer Reviewer approves, with the same Q2 limits (decision item 19). Any other project: Owner | Unchanged |
+| Deploy to dev or canary | Owner (hard limit 3), except the Q2 grant below | Unchanged |
+| dev to canary | Owner, except the Q2 grant below | Unchanged |
 | Merge into feature, integration or release branches | PRINCIPLES.md section 6: the author merges after Peer Reviewer approves (this wins over Colony's nonauthor integrator) | Unchanged |
-| Release PR to main | Owner. Exception (Q4: Owner, 31 Oct 2026, decision item 21): a release PR whose highest class is I1 is merged by its author after its section 5 soak and a recorded Peer Reviewer APPROVE on the current head, pinned to that commit sha. Where a catch rule (section 4) forces an Owner merge, the Owner still merges | Unchanged |
-| Move prod (pin-bump or overlay PR) | Owner | Unchanged; release controller auto-merge awaits an Owner answer |
-| Roll back prod | Pre-approved, no Owner ask, only for an image-only rollback to the last known-good pin, never one that involves a data migration (Q3: Owner, 31 Oct 2026, decision item 20). Any other rollback: Owner-merged PR, tier C (PRINCIPLES.md section 12, step 3) | Automatic triggers, see below |
+| Release PR to main | Owner, except the Q4 grant below | Unchanged |
+| Move prod (pin-bump or overlay PR) | Owner, except the Q3 pin-revert PR below | Unchanged; release controller auto-merge awaits an Owner answer |
+| Roll back prod | The Q3 pin-revert PR below. Any other rollback: Owner-merged PR, tier C (PRINCIPLES.md section 12, step 3) | Unattended automatic prod triggers, see below |
 
-Colony level 6 is the Colony workflow doc's capability maturity level 6,
-"Gates and recovery paths: Authority/risk rules govern transitions and failures
-return only to affected nodes", demonstrated at the runtime stage with levels 1
-to 6 all currently demonstrated (Colony's rollup rule).
+### Grants (Q2 to Q4)
 
-Limits that apply to every grant above:
+Each grant is a colony charter delegation, cited here by id. Common terms:
 
-- The grants do not lift any other hard limit. A deploy, rollback or merge that
-  also touches credentials, deletes, external sends or anything irreversible
+- Projects: a grant covers only projects named in its colony delegation. None
+  are named yet. A project is added by a PR the Owner merges.
+- Expiry: each grant ends on 30 Nov 2026 (the Q5 review date) unless a new
+  Owner-merged PR renews it.
+- Evidence: not provided; Owner merge accepts this. PRINCIPLES.md section 3
+  asks for track-record evidence and section 11 step 3 control evidence; none
+  is cited for these grants.
+- Undo path: revert or remove the colony delegation, or let it expire. An
+  incident in the class drops the agent's tier at once (PRINCIPLES.md section
+  12), which suspends that agent's grant.
+- Other hard limits stay: the grants do not lift hard limits 1, 2, 4, 5 or 6
+  (PRINCIPLES.md section 4: spending, security, credentials and access policy,
+  external sends, deletes, anything irreversible). A step that touches one
   stays tier C.
-- An incident in the class drops the agent's tier at once (PRINCIPLES.md
-  section 12), which suspends that agent's grant.
-- Q2 needs automatic rollback: a control that returns the lane to the last
-  known-good pin without a human when a trigger fires. Until a project has one,
-  the Q2 grant does not apply to it.
-- Q3: the revert goes to the last known-good pin, the previous pin that passed
-  its soak. One promotion per commit, so a revert takes nothing else with it. If
-  any change since that pin ran a data migration, the rollback is not
-  pre-approved: stop and forward-fix or ask, at tier C. The contract (drop) step
-  of a migration is I4.
 
-PROPOSED automatic rollback triggers, which need the section 11 step 3 control
-evidence before they run unattended in prod:
+**Q2, deploy to dev and canary** (delegation `release-lanes-q2-dev-canary-deploy`;
+decision item 19, 3:17 PM AEDT; answer "A: Level 6 projects only, with
+automatic rollback").
 
-- Triggers: a signal outside threshold for 10 minutes in canary, or for at
-  least one alarm check interval in prod; a failed smoke check; a crash loop.
-- Windows start once the rollout is Ready or its deadline has passed. A
-  project's decided values win (rollout deadline, outside-alarm timing,
-  shut-off retry).
+- The project's owner agent deploys to dev and canary without asking, only
+  for a project at Colony level 6 and only with automatic rollback attached.
+- Colony level 6 is the Colony workflow doc's capability maturity level 6,
+  "Gates and recovery paths: Authority/risk rules govern transitions and
+  failures return only to affected nodes", demonstrated at the runtime stage
+  with levels 1 to 6 all currently demonstrated (Colony's rollup rule). Colony
+  has no runtime assessor yet, so no project qualifies today.
+- Automatic rollback (adopted for dev and canary only): the deploy returns to
+  the last known-good pin, the previous pin that passed its soak, without a
+  human when a trigger fires. Triggers: a section 5 signal outside threshold
+  for 10 minutes; a failed smoke check; a crash loop. Windows start once the
+  rollout is Ready or its deadline has passed.
+- Fail closed: if no trigger signal has a named source and owner for the
+  project, there is no automatic rollback, so no Q2 deploy.
+- Chief of Staff narrowing, not the Owner's words: dev to canary also needs a
+  Peer Reviewer approval.
+
+**Q3, prod pin-revert PR** (delegation `release-lanes-q3-prod-pin-revert`;
+decision item 20, 3:17 PM AEDT; answer A, recorded by the decision register as
+"image-only rollbacks, never with a data migration").
+
+- The permitted action: the project's owner agent opens and merges a PR whose
+  only change sets the prod image pin back to the last known-good image digest.
+  Chief of Staff's implementation, not the Owner's words: the PR needs a Peer
+  Reviewer APPROVE on its current head, pinned to that sha, and must pass the
+  pin-only check.
+- Pin-only check: the diff changes only the prod image pin line or lines, and
+  the new value equals the last known-good digest recorded in the trail.
+  Anything else in the diff, and the `.flux/**` Owner-merge rule applies.
+- Last known-good prod pin: the previous prod pin that ran a full alarm window
+  with no trigger firing and was not itself rolled back.
+- Never with a data migration, fail closed: if the trail cannot show that no
+  data migration ran since that pin, treat it as having run. Backfills and
+  other data-changing jobs count as migrations. Then stop and forward-fix or
+  ask, at tier C. The contract (drop) step of a migration is I4.
+- Q3 does not cover an incident undo by the agent whose change caused the
+  incident: PRINCIPLES.md section 12, Immediate effects step 3, keeps that
+  agent's production rollback at tier C. Another agent that holds the grant
+  may run the pin-revert.
+
+**Q4, I1 release PRs to main** (delegation `release-lanes-q4-i1-release-merge`;
+decision item 21, 3:18 PM AEDT; question "Can small (I1) fixes reach main
+without your approval?"; answer "B: Yes, now").
+
+Chief of Staff's implementation of the Q4 answer (narrows it). The author
+merges a release PR whose highest class is I1 only when all of these hold:
+
+- the project is named in the delegation and is in the section 3 scope (a
+  deployed project with a release flow and a dev deploy path);
+- the PR has passed its section 5 soak;
+- Peer Reviewer's APPROVE is recorded on the current head, pinned to that sha,
+  and states the class it found as I1;
+- all required checks are green and all review feedback is resolved
+  (PRINCIPLES.md section 6);
+- no catch rule (section 4) forces an Owner merge.
+
+Moving prod stays an Owner merge.
+
+PROPOSED: unattended automatic rollback in prod, using the triggers above with
+"for at least one alarm check interval" in place of 10 minutes. It needs the
+section 11 step 3 control evidence first. A project's decided values win
+(rollout deadline, outside-alarm timing, shut-off retry).
 
 PROPOSED A/B tests, once a canary exists: own data store or read-only prod
 data, flag off in prod, traffic within the canary cap, no external sends, and a
@@ -263,22 +329,19 @@ prompt does not count.
 
 ## 10. Owner decisions (answered)
 
-The Owner answered each question on a decision card. Each answer takes effect
-only when the Owner merges this file (Status, above).
+All on 31 Oct 2026. The grants take effect only when both this file and the
+paired colony charter PR merge (Status, above).
 
-- Q1 (decision item 18, 31 Oct 2026, 2:16 pm AEDT). Should I0 changes go
-  straight to main? Answer C: no. I0 changes ride the next release PR
-  (section 3).
-- Q2 (decision item 19, 31 Oct 2026, 3:17 pm AEDT). Should agents deploy to dev
-  and canary? Answer A: yes, only for projects at Colony level 6 and only with
-  automatic rollback attached (section 6).
-- Q3 (decision item 20, 31 Oct 2026, 3:17 pm AEDT). Should a rollback to the
-  last known-good prod pin be pre-approved? Answer A: yes, image-only rollbacks
-  only, never one that involves a data migration (section 6).
-- Q4 (decision item 21, 31 Oct 2026, 3:18 pm AEDT). Can I1 skip the Owner on the
-  way to main? Answer B: yes, now. A recorded Peer Reviewer APPROVE on the
-  current head, pinned to its sha, is still required, and the catch rules still
-  force an Owner merge where they fire (section 6).
-- Q5 (decision item 22, 31 Oct 2026, 3:19 pm AEDT). Are the soak times and
-  thresholds right? Answer A: adopt as written (I1 2 h, I2 24 h, I3 72 h canary
-  soak, and the section 5 thresholds), and review them by 30 Nov 2026.
+- Q1 (decision item 18, about 2:16 PM AEDT). Should trivial (I0) changes go
+  straight to main? A typed reply, "18: C, no". I0 changes ride the next
+  release PR (section 3).
+- Q2 (decision item 19, 3:17 PM AEDT). Should agents deploy to dev and canary
+  without asking? "A: Level 6 projects only, with automatic rollback"
+  (section 6).
+- Q3 (decision item 20, 3:17 PM AEDT). Should a rollback to the previous prod
+  version be pre-approved? Answer A, recorded as "image-only rollbacks, never
+  with a data migration" (section 6).
+- Q4 (decision item 21, 3:18 PM AEDT). "Can small (I1) fixes reach main
+  without your approval?" "B: Yes, now" (section 6).
+- Q5 (decision item 22, 3:19 PM AEDT). Are the soak times and thresholds
+  right? "A: Adopt as written, review in a month" (section 5).
