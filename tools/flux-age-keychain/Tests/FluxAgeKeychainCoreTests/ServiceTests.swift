@@ -3,10 +3,10 @@ import XCTest
 
 final class ServiceTests: XCTestCase {
     func testAcceptsCurrentAndPrevious() {
-        XCTAssertEqual(Service("flux-age/foreman")?.app, "foreman")
-        XCTAssertEqual(Service("flux-age/foreman")?.isPrevious, false)
-        XCTAssertEqual(Service("flux-age/bruce-billing/previous")?.app, "bruce-billing")
-        XCTAssertEqual(Service("flux-age/bruce-billing/previous")?.isPrevious, true)
+        XCTAssertEqual(Service("flux-age/app-a")?.app, "app-a")
+        XCTAssertEqual(Service("flux-age/app-a")?.isPrevious, false)
+        XCTAssertEqual(Service("flux-age/app-b/previous")?.app, "app-b")
+        XCTAssertEqual(Service("flux-age/app-b/previous")?.isPrevious, true)
         XCTAssertEqual(Service("flux-age/a")?.name, "flux-age/a")
         XCTAssertEqual(Service("flux-age/" + String(repeating: "a", count: 63))?.app.count, 63)
     }
@@ -14,10 +14,10 @@ final class ServiceTests: XCTestCase {
     func testRejectsOtherNames() {
         let bad = [
             "", "flux-age/", "flux-age", "flux-age//previous", "flux-age/previous/previous/x",
-            "flux-age/Foreman", "flux-age/-foreman", "flux-age/foreman-", "flux-age/fore_man",
-            "flux-age/foreman/older", "flux-age/foreman/", "other/foreman", "flux-age/../x",
-            "flux-age/" + String(repeating: "a", count: 64), "flux-age/foreman/previous/previous",
-            " flux-age/foreman", "flux-age/foreman\n",
+            "flux-age/App-a", "flux-age/-app-a", "flux-age/app-a-", "flux-age/app_a",
+            "flux-age/app-a/older", "flux-age/app-a/", "other/app-a", "flux-age/../x",
+            "flux-age/" + String(repeating: "a", count: 64), "flux-age/app-a/previous/previous",
+            " flux-age/app-a", "flux-age/app-a\n",
         ]
         for name in bad {
             XCTAssertNil(Service(name), "accepted \(name.debugDescription)")
@@ -25,6 +25,6 @@ final class ServiceTests: XCTestCase {
     }
 
     func testPreviousOfCurrent() {
-        XCTAssertEqual(Service("flux-age/foreman")?.previous.name, "flux-age/foreman/previous")
+        XCTAssertEqual(Service("flux-age/app-a")?.previous.name, "flux-age/app-a/previous")
     }
 }
