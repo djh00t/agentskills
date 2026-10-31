@@ -17,12 +17,13 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: tools/flux-age-keychain
     steps:
-      - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: "5.10"
       - name: swift test
