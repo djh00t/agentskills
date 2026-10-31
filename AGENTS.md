@@ -6,7 +6,7 @@
 
 ## Operating principles
 
-All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review and evidence rules. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md wins.
+All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review, evidence rules and incidents. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md wins.
 
 ## Dependency Advisor
 
