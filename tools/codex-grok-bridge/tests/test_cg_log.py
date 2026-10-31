@@ -26,7 +26,6 @@ class MessageLogTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_concurrent_processes_write_each_sequence_once(self):
-        self.log.record(1, "seed", "now")
         processes = [multiprocessing.Process(target=record_many, args=(self.path, range(start, 101, 2)))
                      for start in (1, 2)]
         for process in processes:
@@ -56,8 +55,7 @@ class MessageLogTest(unittest.TestCase):
         self.assertEqual(log._read()[0]["seq"], "97")
         legacy.unlink()
         self.assertEqual(cg_log.MessageLog(self.path).cursor(), 97)
-        with self.assertRaises(cg_log.LogError):
-            log.record(97, "duplicate", "now")
+        log.record(97, "duplicate", "now")
         self.assertEqual(len(log._read()), 1)
 
     def test_state_moves_forward_and_cursor_tracks_routed_or_later(self):
@@ -133,7 +131,7 @@ class MessageLogTest(unittest.TestCase):
         with self.assertRaises(cg_log.LogError):
             self.log.transition(2, "routed")
         self.log.transition(1, "failed")
-        self.assertEqual(self.log.cursor(), 0)
+        self.assertEqual(self.log.cursor(), 1)
         with self.assertRaises(cg_log.LogError):
             self.log.transition(1, "done")
 
@@ -194,24 +192,24 @@ class MessageLogTest(unittest.TestCase):
 
     def test_record_rejects_cursor_rollback(self):
         self.log.record(5, "r", "t")
+        self.log.transition(5, "routed")
         original = self.path.read_bytes()
         for seq in (3, 4):
             with self.subTest(seq=seq), self.assertRaises(cg_log.LogError):
                 self.log.record(seq, "r", "t")
         self.assertEqual(self.path.read_bytes(), original)
-        self.log.transition(5, "routed")
-        original = self.path.read_bytes()
-        with self.assertRaises(cg_log.LogError):
-            self.log.record(5, "duplicate", "t")
+        self.log.record(5, "duplicate", "t")
         self.assertEqual(self.path.read_bytes(), original)
         legacy = Path(self.tmp.name) / "last-seq"
         legacy.write_text("97\n")
         log = cg_log.MessageLog(Path(self.tmp.name) / "seed.tsv", legacy)
-        for seq in (50, 97):
-            with self.subTest(seq=seq), self.assertRaises(cg_log.LogError):
-                log.record(seq, "r", "t")
+        with self.assertRaises(cg_log.LogError):
+            log.record(50, "r", "t")
         self.assertFalse(log.path.exists())
         self.assertEqual(log.cursor(), 97)
+        original = log.path.read_bytes()
+        log.record(97, "duplicate", "t")
+        self.assertEqual(log.path.read_bytes(), original)
 
     def test_migration_marker_cannot_be_forged_or_changed(self):
         marker = "migrated legacy cursor"
@@ -306,13 +304,47 @@ class MessageLogTest(unittest.TestCase):
 
     def test_first_legacy_value_must_be_complete(self):
         legacy = Path(self.tmp.name) / "last-seq"
-        for value in ("9", "97", "097", "97\n9", "97\n98\n"):
+        for value in ("97\n9", "97\n98\n", "97x", "9\x00", "\ufeff"):
             legacy.write_text(value)
             log = cg_log.MessageLog(self.path, legacy)
             for operation in (log.cursor, lambda: log.record(98, "r", "t")):
                 with self.subTest(value=value), self.assertRaises(cg_log.LogError):
                     operation()
             self.assertFalse(self.path.exists())
+
+    def test_out_of_order_first_arrivals(self):
+        self.log.record(2, "second", "t")
+        self.log.record(1, "first", "t")
+        self.assertEqual([row["seq"] for row in self.log._read()], ["1", "2"])
+        self.assertEqual(self.log.cursor(), 0)
+
+    def test_failed_row_does_not_block_later_progress(self):
+        for seq in (1, 2, 3):
+            self.log.record(seq, "r", "t")
+            self.log.transition(seq, "failed" if seq == 2 else "routed")
+        self.assertEqual(self.log.cursor(), 3)
+        original = self.path.read_bytes()
+        self.log.record(2, "replay", "t")
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_legacy_whitespace_and_bom(self):
+        legacy = Path(self.tmp.name) / "last-seq"
+        for index, value in enumerate(("97", "097", "97\n\n", " \t97\n",
+                                       "\ufeff97\n", "97\r\n")):
+            with self.subTest(value=value):
+                legacy.write_text(value, encoding="utf-8")
+                log = cg_log.MessageLog(Path(self.tmp.name) / f"log-{index}.tsv", legacy)
+                self.assertEqual(log.cursor(), 97)
+
+    def test_migrated_cursor_ignores_later_legacy_bump(self):
+        legacy = Path(self.tmp.name) / "last-seq"
+        legacy.write_text("97\n")
+        log = cg_log.MessageLog(self.path, legacy)
+        self.assertEqual(log.cursor(), 97)
+        original = self.path.read_bytes()
+        legacy.write_text("120\n")
+        self.assertEqual(cg_log.MessageLog(self.path, legacy).cursor(), 97)
+        self.assertEqual(self.path.read_bytes(), original)
 
     def test_invalid_log_header_and_rows(self):
         header = "\t".join(cg_log.FIELDS) + "\n"

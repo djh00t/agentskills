@@ -91,10 +91,7 @@ class MessageLog:
                 or any(row["note"] == "migrated legacy cursor" and row["state"] == "done"
                        and not row["req_id"] for row in rows)):
             return rows
-        value = self.legacy_last_seq.read_text(encoding="utf-8")
-        if not value.endswith("\n"):
-            raise LogError("incomplete legacy sequence")
-        value = value[:-1]
+        value = self.legacy_last_seq.read_text(encoding="utf-8-sig").strip()
         if not value.isascii() or not value.isdecimal():
             raise LogError("invalid legacy sequence")
         if self.path.exists():
@@ -106,7 +103,7 @@ class MessageLog:
 
     def record(self, seq: int, req_id: str, received_at: str, routed_to: str = "", acked: str = "",
                state: str = "received", ack_msg_id: str = "", note: str = "") -> None:
-        """Add above the cursor once; leave an existing pending row unchanged."""
+        """Add a sequence once; reject new rows below a handled cursor."""
         if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
             raise LogError("sequence must be a non-negative integer")
         if state != "received":
@@ -120,10 +117,11 @@ class MessageLog:
         try:
             original = self._read()
             rows = self._migrate(original)
-            if rows and seq <= self._cursor(rows):
-                raise LogError("sequence must be above the current cursor")
             if any(row["seq"] == str(seq) for row in rows):
                 return
+            cursor = self._cursor(rows)
+            if rows and seq <= cursor and cursor >= min(int(row["seq"]) for row in rows):
+                raise LogError("sequence must be above the current cursor")
             rows.append(dict(zip(FIELDS, (str(seq), req_id, received_at, routed_to, acked, state, ack_msg_id, note))))
             rows.sort(key=lambda row: int(row["seq"]))
             self._write(rows)
@@ -163,13 +161,13 @@ class MessageLog:
         cursor = max(0, int(ordered[0]["seq"]) - 1) if ordered else 0
         for row in ordered:
             seq = int(row["seq"])
-            if seq > cursor + 1 or row["state"] not in {"routed", "acked", "done"}:
+            if seq > cursor + 1 or row["state"] not in {"routed", "acked", "done", "failed"}:
                 break
             cursor = seq
         return cursor
 
     def cursor(self) -> int:
-        """Return the contiguous routed cursor; persist a legacy seed once."""
+        """Return the contiguous handled cursor; persist a legacy seed once."""
         lock = self._locked()
         try:
             original = self._read()

@@ -37,9 +37,9 @@ Feature: Durable forward-only message log
     Then the log and lock file modes are 0600
 
   # Executed by MessageLogTest.test_record_rejects_cursor_rollback
-  Scenario: Reject records at or below the cursor
-    Given a non-empty log or a legacy cursor of 97
-    When a record at or below the current cursor is attempted
+  Scenario: Reject new records below a handled cursor
+    Given sequence 5 is routed or a legacy cursor of 97
+    When a new record below the handled cursor is attempted
     Then LogError is raised without changing the log
 
   # Executed by MessageLogTest.test_existing_log_ignores_legacy_unless_higher
@@ -56,7 +56,7 @@ Feature: Durable forward-only message log
 
   # Executed by MessageLogTest.test_first_legacy_value_must_be_complete
   Scenario: Reject an incomplete first legacy cursor
-    Given a missing log and a partial or unterminated legacy value
+    Given a missing log and a non-numeric or multiple legacy value
     When a cursor read or record is attempted
     Then LogError is raised and no log is created
 
@@ -65,3 +65,33 @@ Feature: Durable forward-only message log
     Given a new message record
     When the log is replaced
     Then the file descriptor is synced before the directory descriptor
+
+  # Executed by MessageLogTest.test_out_of_order_first_arrivals
+  Scenario: Accept out-of-order arrivals before handling
+    Given sequence 2 is received in a fresh log
+    When sequence 1 is received
+    Then both records are stored and the cursor is 0
+
+  # Executed by MessageLogTest.test_record_rejects_cursor_rollback
+  Scenario: Replay a handled sequence
+    Given sequence 5 is routed or a legacy cursor of 97 is persisted
+    When that sequence is recorded again
+    Then the stored bytes remain unchanged
+
+  # Executed by MessageLogTest.test_failed_row_does_not_block_later_progress
+  Scenario: Advance past a terminal failure
+    Given sequences 1 and 3 are routed and sequence 2 has failed
+    When the cursor is read
+    Then the cursor is 3
+
+  # Executed by MessageLogTest.test_legacy_whitespace_and_bom
+  Scenario: Accept harmless legacy formatting
+    Given a legacy integer with whitespace or a BOM or no final newline
+    When the cursor is read
+    Then the cursor is 97
+
+  # Executed by MessageLogTest.test_migrated_cursor_ignores_later_legacy_bump
+  Scenario: Consume a legacy cursor once
+    Given legacy cursor 97 has been migrated
+    When the legacy file changes to 120
+    Then the cursor remains 97 and the log bytes remain unchanged
