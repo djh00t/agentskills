@@ -2,9 +2,10 @@
 
 ## Status and precedence
 
-Merging this file adopts only three things: the impact classification (section
-3), the catch rules (section 4) and the lane-decision trail (section 7). They
-add checks and grant no authority.
+Merging this file adopts only these: the impact classification with its
+minimum lane path (section 3) and minimum soak (section 5), the catch rules
+(section 4) and the lane-decision trail (section 7). They add checks and grant
+no authority.
 
 Everything marked PROPOSED is not adopted. Each widening comes later as its own
 PR under PRINCIPLES.md section 3 (Earned autonomy): one agent or one project,
@@ -86,6 +87,10 @@ The highest matching class wins:
 | I0 trivial | A total of 1 or less, Data 0, Security 0, no path rule fired | The next release PR |
 
 Every class reaches main through the release PR, which the Owner merges.
+
+The lane paths and soak apply only to deployed projects that have a release
+flow and an existing dev deploy path. Other repos record the class and follow
+PRINCIPLES.md section 6 only.
 
 ## 4. Catch rules (adopted)
 
