@@ -194,15 +194,18 @@ of Staff narrowing, is the end of 30 Nov 2026 AEDT (23:59 AEDT).
 
 Each grant is a colony charter delegation, cited here by id. Common terms:
 
-- Projects: a grant covers only projects named in its colony delegation. None
-  are named yet. A project is added by a PR the Owner merges, one project per
-  PR, citing evidence or stating the same accepted evidence gap (PRINCIPLES.md
+- Projects: a grant covers only projects named in its colony delegation. The
+  Owner named two projects on 31 Oct 2026 (decision item 60, 3:45 PM AEDT); the
+  colony delegations list them with their owner agents. Each change under a
+  grant covers one project per PR. A further project is added by a PR the
+  Owner merges, one project per PR, citing evidence or stating the same accepted evidence gap (PRINCIPLES.md
   section 3, "one agent or one project").
 - Expiry: each grant ends at the end of 30 Nov 2026 AEDT (23:59 AEDT), the
   computed Q5 review date, unless a new Owner-merged PR renews it.
-- Evidence: not provided; Owner merge accepts this. PRINCIPLES.md section 3
-  asks for track-record evidence and section 11 step 3 control evidence; none
-  is cited for these grants.
+- Evidence: none is cited. PRINCIPLES.md section 3 asks for track-record
+  evidence and section 11 step 3 control evidence. The Owner accepted the gap
+  (decision item 62, 3:45 PM AEDT): "62: yes, accept for the trial until
+  30 Nov".
 - Undo path: revert or remove the colony delegation, or let it expire. An
   incident in the class drops the agent's tier at once (PRINCIPLES.md section
   12), which suspends that agent's grant.
@@ -254,8 +257,10 @@ migration").
   ask, at tier C. The contract (drop) step of a migration is I4.
 - Q3 does not cover an incident undo by the agent whose change caused the
   incident: PRINCIPLES.md section 12, Immediate effects step 3, keeps that
-  agent's production rollback at tier C. So the project's owner agent may run
-  the pin-revert only when another agent's change caused the incident.
+  agent's production rollback at tier C. The Owner confirmed this (decision
+  item 61, 3:45 PM AEDT): "61: keep it, a different agent rolls back". So the
+  project's owner agent may run the pin-revert only when another agent's change
+  caused the incident.
 
 **Q4, I1 release PRs to main** (delegation `release-lanes-q4-i1-release-merge`;
 decision item 21, 3:18 PM AEDT; question "Can small (I1) fixes reach main
@@ -352,3 +357,9 @@ paired colony charter PR merge (Status, above).
   without your approval?" "B: Yes, now" (section 6).
 - Q5 (decision item 22, 3:19 PM AEDT). Are the soak times and thresholds
   right? "A: Adopt as written, review in a month" (section 5).
+- Item 60 (3:45 PM AEDT). Which projects do the grants cover? Two projects,
+  listed in the colony delegations (section 6).
+- Item 61 (3:45 PM AEDT). May the agent whose change caused an incident roll
+  back prod? "61: keep it, a different agent rolls back" (section 6, Q3).
+- Item 62 (3:45 PM AEDT). Accept the grants without cited evidence? "62: yes,
+  accept for the trial until 30 Nov" (section 6, Evidence).
