@@ -26,6 +26,7 @@ class MessageLogTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_concurrent_processes_write_each_sequence_once(self):
+        self.log.record(1, "seed", "now")
         processes = [multiprocessing.Process(target=record_many, args=(self.path, range(start, 101, 2)))
                      for start in (1, 2)]
         for process in processes:
@@ -55,7 +56,8 @@ class MessageLogTest(unittest.TestCase):
         self.assertEqual(log._read()[0]["seq"], "97")
         legacy.unlink()
         self.assertEqual(cg_log.MessageLog(self.path).cursor(), 97)
-        log.record(97, "duplicate", "now")
+        with self.assertRaises(cg_log.LogError):
+            log.record(97, "duplicate", "now")
         self.assertEqual(len(log._read()), 1)
 
     def test_state_moves_forward_and_cursor_tracks_routed_or_later(self):
@@ -66,6 +68,8 @@ class MessageLogTest(unittest.TestCase):
         with self.assertRaises(cg_log.LogError):
             self.log.transition(3, "received")
         self.log.transition(3, "acked")
+        with self.assertRaises(cg_log.LogError):
+            self.log.transition(3, "routed")
         self.log.transition(3, "done")
         with self.assertRaises(cg_log.LogError):
             self.log.transition(3, "failed")
@@ -174,23 +178,90 @@ class MessageLogTest(unittest.TestCase):
                 cg_log.MessageLog(self.path, legacy).cursor()
             self.assertFalse(self.path.exists())
 
-    def test_legacy_cannot_lower_existing_cursor(self):
+    def test_existing_log_ignores_legacy_unless_higher(self):
         self.log.record(3, "r", "t")
         self.log.transition(3, "routed")
         original = self.path.read_bytes()
         legacy = Path(self.tmp.name) / "last-seq"
-        legacy.write_text("2")
+        log = cg_log.MessageLog(self.path, legacy)
+        for value in ("2\n", "3\n"):
+            legacy.write_text(value)
+            self.assertEqual(log.cursor(), 3)
+        legacy.write_text("4\n")
         with self.assertRaises(cg_log.LogError):
-            cg_log.MessageLog(self.path, legacy).cursor()
+            log.cursor()
         self.assertEqual(self.path.read_bytes(), original)
 
-    def test_record_of_legacy_sequence_persists_migration(self):
+    def test_record_rejects_cursor_rollback(self):
+        self.log.record(5, "r", "t")
+        original = self.path.read_bytes()
+        for seq in (3, 4):
+            with self.subTest(seq=seq), self.assertRaises(cg_log.LogError):
+                self.log.record(seq, "r", "t")
+        self.assertEqual(self.path.read_bytes(), original)
+        self.log.transition(5, "routed")
+        original = self.path.read_bytes()
+        with self.assertRaises(cg_log.LogError):
+            self.log.record(5, "duplicate", "t")
+        self.assertEqual(self.path.read_bytes(), original)
         legacy = Path(self.tmp.name) / "last-seq"
-        legacy.write_text("097")
-        log = cg_log.MessageLog(self.path, legacy)
-        log.record(97, "duplicate", "now")
-        legacy.unlink()
+        legacy.write_text("97\n")
+        log = cg_log.MessageLog(Path(self.tmp.name) / "seed.tsv", legacy)
+        for seq in (50, 97):
+            with self.subTest(seq=seq), self.assertRaises(cg_log.LogError):
+                log.record(seq, "r", "t")
+        self.assertFalse(log.path.exists())
+        self.assertEqual(log.cursor(), 97)
+
+    def test_migration_marker_cannot_be_forged_or_changed(self):
+        marker = "migrated legacy cursor"
+        with self.assertRaises(cg_log.LogError):
+            self.log.record(1, "", "", note=marker)
+        self.log.record(1, "", "")
+        for state in ("routed", "acked", "done"):
+            original = self.path.read_bytes()
+            with self.assertRaises(cg_log.LogError):
+                self.log.transition(1, state, note=marker)
+            self.assertEqual(self.path.read_bytes(), original)
+            self.log.transition(1, state)
+        legacy = Path(self.tmp.name) / "last-seq"
+        legacy.write_text("97\n")
+        log = cg_log.MessageLog(Path(self.tmp.name) / "seed.tsv", legacy)
+        log.cursor()
+        original = log.path.read_bytes()
+        for state in cg_log.TRANSITIONS:
+            with self.subTest(state=state), self.assertRaises(cg_log.LogError):
+                log.transition(97, state, note="changed")
+        self.assertEqual(log.path.read_bytes(), original)
+
+    def test_handwritten_legacy_row_is_normalized(self):
+        self.path.write_text("\t".join(cg_log.FIELDS) + "\n"
+                             "097\t\t\t\t\tdone\t\tmigrated legacy cursor\n")
         self.assertEqual(self.log.cursor(), 97)
+        self.assertEqual(self.log._read()[0]["seq"], "97")
+        self.log.record(98, "r", "t")
+        self.assertTrue(self.path.read_text().splitlines()[1].startswith("97\t"))
+
+    def test_write_syncs_file_then_directory(self):
+        modes = []
+        sync = os.fsync
+        def capture(fd):
+            modes.append(os.fstat(fd).st_mode)
+            sync(fd)
+        with patch.object(cg_log.os, "fsync", side_effect=capture) as fsync:
+            self.log.record(1, "r", "t")
+        self.assertEqual(fsync.call_count, 2)
+        self.assertTrue(stat.S_ISREG(modes[0]))
+        self.assertTrue(stat.S_ISDIR(modes[1]))
+
+    def test_directory_sync_failure_can_follow_replace(self):
+        def fail_directory(fd):
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                raise OSError("directory sync failed")
+        with patch.object(cg_log.os, "fsync", side_effect=fail_directory):
+            with self.assertRaises(OSError):
+                self.log.record(1, "r", "t")
+        self.assertEqual(self.log._read()[0]["seq"], "1")
 
     def test_all_allowed_state_edges(self):
         for source, targets in {"received": ("routed", "failed"),
@@ -212,7 +283,7 @@ class MessageLogTest(unittest.TestCase):
 
     def test_migrated_cursor_can_advance_with_legacy_file_present(self):
         legacy = Path(self.tmp.name) / "last-seq"
-        legacy.write_text("3")
+        legacy.write_text("3\n")
         log = cg_log.MessageLog(self.path, legacy)
         self.assertEqual(log.cursor(), 3)
         log.record(4, "r", "t")
@@ -224,13 +295,24 @@ class MessageLogTest(unittest.TestCase):
         with self.assertRaises(cg_log.LogError):
             self.log.cursor()
 
-    def test_header_only_log_persists_migration(self):
+    def test_header_only_log_rejects_higher_legacy(self):
         self.path.write_text("\t".join(cg_log.FIELDS) + "\n")
+        original = self.path.read_bytes()
         legacy = Path(self.tmp.name) / "last-seq"
-        legacy.write_text("097")
-        self.assertEqual(cg_log.MessageLog(self.path, legacy).cursor(), 97)
-        legacy.unlink()
-        self.assertEqual(self.log.cursor(), 97)
+        legacy.write_text("097\n")
+        with self.assertRaises(cg_log.LogError):
+            cg_log.MessageLog(self.path, legacy).cursor()
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_first_legacy_value_must_be_complete(self):
+        legacy = Path(self.tmp.name) / "last-seq"
+        for value in ("9", "97", "097", "97\n9", "97\n98\n"):
+            legacy.write_text(value)
+            log = cg_log.MessageLog(self.path, legacy)
+            for operation in (log.cursor, lambda: log.record(98, "r", "t")):
+                with self.subTest(value=value), self.assertRaises(cg_log.LogError):
+                    operation()
+            self.assertFalse(self.path.exists())
 
     def test_invalid_log_header_and_rows(self):
         header = "\t".join(cg_log.FIELDS) + "\n"

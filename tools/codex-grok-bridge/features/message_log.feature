@@ -35,3 +35,33 @@ Feature: Durable forward-only message log
     Given a permissive process umask
     When a record is stored and routed
     Then the log and lock file modes are 0600
+
+  # Executed by MessageLogTest.test_record_rejects_cursor_rollback
+  Scenario: Reject records at or below the cursor
+    Given a non-empty log or a legacy cursor of 97
+    When a record at or below the current cursor is attempted
+    Then LogError is raised without changing the log
+
+  # Executed by MessageLogTest.test_existing_log_ignores_legacy_unless_higher
+  Scenario: Keep the existing log authoritative
+    Given a log cursor of 3 without a migration marker
+    When a legacy cursor is read beside the log
+    Then values at or below 3 are ignored and higher values raise LogError
+
+  # Executed by MessageLogTest.test_migration_marker_cannot_be_forged_or_changed
+  Scenario: Reserve the migration marker
+    Given the migration note is reserved for internal use
+    When a public write attempts to create or change a migration marker
+    Then LogError is raised
+
+  # Executed by MessageLogTest.test_first_legacy_value_must_be_complete
+  Scenario: Reject an incomplete first legacy cursor
+    Given a missing log and a partial or unterminated legacy value
+    When a cursor read or record is attempted
+    Then LogError is raised and no log is created
+
+  # Executed by MessageLogTest.test_write_syncs_file_then_directory
+  Scenario: Sync the file and its directory
+    Given a new message record
+    When the log is replaced
+    Then the file descriptor is synced before the directory descriptor

@@ -91,19 +91,22 @@ class MessageLog:
                 or any(row["note"] == "migrated legacy cursor" and row["state"] == "done"
                        and not row["req_id"] for row in rows)):
             return rows
-        value = self.legacy_last_seq.read_text(encoding="utf-8").strip()
+        value = self.legacy_last_seq.read_text(encoding="utf-8")
+        if not value.endswith("\n"):
+            raise LogError("incomplete legacy sequence")
+        value = value[:-1]
         if not value.isascii() or not value.isdecimal():
             raise LogError("invalid legacy sequence")
-        if int(value) < self._cursor(rows):
-            raise LogError("legacy sequence is lower than existing cursor")
-        if rows:
+        if self.path.exists():
+            if int(value) > self._cursor(rows):
+                raise LogError("legacy sequence is higher than existing cursor")
             return rows
         return [{"seq": str(int(value)), "req_id": "", "received_at": "", "routed_to": "", "acked": "",
                  "state": "done", "ack_msg_id": "", "note": "migrated legacy cursor"}]
 
     def record(self, seq: int, req_id: str, received_at: str, routed_to: str = "", acked: str = "",
                state: str = "received", ack_msg_id: str = "", note: str = "") -> None:
-        """Add a sequence once. An existing sequence is left unchanged."""
+        """Add above the cursor once; leave an existing pending row unchanged."""
         if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
             raise LogError("sequence must be a non-negative integer")
         if state != "received":
@@ -111,13 +114,15 @@ class MessageLog:
         values = (req_id, received_at, routed_to, acked, ack_msg_id, note)
         if any(not isinstance(value, str) for value in values):
             raise LogError("log fields must be text")
+        if note == "migrated legacy cursor":
+            raise LogError("reserved migration note")
         lock = self._locked()
         try:
             original = self._read()
             rows = self._migrate(original)
+            if rows and seq <= self._cursor(rows):
+                raise LogError("sequence must be above the current cursor")
             if any(row["seq"] == str(seq) for row in rows):
-                if rows != original:
-                    self._write(rows)
                 return
             rows.append(dict(zip(FIELDS, (str(seq), req_id, received_at, routed_to, acked, state, ack_msg_id, note))))
             rows.sort(key=lambda row: int(row["seq"]))
@@ -133,6 +138,8 @@ class MessageLog:
             raise LogError("invalid state")
         if any(value is not None and not isinstance(value, str) for value in (ack_msg_id, note)):
             raise LogError("log fields must be text")
+        if note == "migrated legacy cursor":
+            raise LogError("reserved migration note")
         lock = self._locked()
         try:
             rows = self._migrate(self._read())
