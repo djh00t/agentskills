@@ -2,6 +2,11 @@
 
 @~/.codex/AGENTS-RTK.md
 @~/.codex/AGENTS-CONTEXT-MODE.md
+@~/.agents/PRINCIPLES.md
+
+## Operating principles
+
+All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review and evidence rules. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md wins.
 
 ## Dependency Advisor
 
