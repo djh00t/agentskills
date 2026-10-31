@@ -1,0 +1,29 @@
+name: codex-grok-bridge
+
+on:
+  pull_request:
+    paths:
+      - "tools/codex-grok-bridge/**"
+      - ".github/workflows/codex-grok-bridge.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tools/codex-grok-bridge/**"
+      - ".github/workflows/codex-grok-bridge.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/codex-grok-bridge
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: make quality-gates
+        run: make quality-gates

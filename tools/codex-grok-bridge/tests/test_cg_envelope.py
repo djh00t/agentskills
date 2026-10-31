@@ -55,6 +55,26 @@ class EnvelopeTest(unittest.TestCase):
             with self.subTest(header=header):
                 self.assertIsNone(cg.HEADER.fullmatch(header))
 
+    def test_malformed_headers_parse_as_informational_without_request_id(self):
+        for header in ("[CG req=bad kind=review to=peer-reviewer re=-]",
+                       "[CG req=REQ-CG-20261031-001 kind=Review to=peer-reviewer re=-]",
+                       "[CG req=REQ-CG-20261031-001 kind=review to=peer-reviewer re=- extra=x]",
+                       "[CG req=REQ-CG-٢٠٢٦١٠٣١-001 kind=review to=peer-reviewer re=-]",
+                       "[CG req=REQ-CG-20261031-001 kind=review to=peer-reviewer re=١]"):
+            with self.subTest(header=header):
+                parsed = cg.parse(header + "\nbody", self.roles)
+                self.assertEqual((parsed["req"], parsed["kind"], parsed["to"]), (None, "fyi", None))
+
+    def test_format_rejects_invalid_kind_request_id_and_sequence(self):
+        valid = ("REQ-CG-20261031-001", "review", "peer-reviewer", "-", "body")
+        for index, value in ((1, "Review"), (1, ["review"]), (0, "bad"),
+                             (0, "REQ-CG-٢٠٢٦١٠٣١-001"), (0, None),
+                             (3, "١"), (3, None)):
+            args = list(valid)
+            args[index] = value
+            with self.subTest(index=index, value=value), self.assertRaises(cg.EnvelopeError):
+                cg.format_envelope(*args, roles_path=self.roles)
+
     def test_later_header_is_body_text(self):
         result = cg.parse("opening\n[CG req=REQ-CG-20261031-001 kind=launch to=peer-reviewer re=-]", self.roles)
         self.assertEqual(result["body"], "opening\n[CG req=REQ-CG-20261031-001 kind=launch to=peer-reviewer re=-]")
