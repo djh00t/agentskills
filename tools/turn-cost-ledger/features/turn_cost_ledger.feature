@@ -42,5 +42,12 @@ Scenario: --since-last-run is the daily reconcile with a gap report
   And today's date is written to a 0600 state file in a 0700 dir
   Given a last run of 2026-11-01
   When the ledger is generated with --since-last-run
-  Then only rollouts from 2026-10-31 on are scanned
+  Then only rollouts modified (mtime) on or after 2026-10-31 are scanned
   And --since with --since-last-run is rejected
+
+Scenario: --since-last-run picks up a resumed session appended to an old rollout
+  Given a rollout under 2026/10/29 that a resumed session appended a turn to on 2026-10-31
+  And a last run of 2026-11-01
+  When the ledger is generated with --since-last-run
+  Then the appended turn is reported and counted in the gap report
+  And --since 2026-10-31 still excludes that rollout by its path date

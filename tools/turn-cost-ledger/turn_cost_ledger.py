@@ -13,8 +13,10 @@ no priced row is counted in calls_unpriced and the turn's cost_complete is false
 
 Stdlib only. Output: CSV (default) or JSONL on stdout.
 
---since-last-run is the daily reconcile: it scans from the day before the last
-run (all rollouts on the first run), prints the usual ledger, writes a JSON gap
+--since-last-run is the daily reconcile: it scans every rollout modified since
+the day before the last run (all rollouts on the first run). It selects by file
+mtime, not path date, because a resumed session appends to its original
+(old-dated) rollout file. It prints the usual ledger, writes a JSON gap
 report to stderr (turns with cost_complete=false or no wall clock, by day) and
 records today's date in --state. Rollouts are the source of truth, so it also
 covers turns whose hooks failed.
@@ -26,7 +28,7 @@ import csv
 import json
 import os
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 FIELDS = [
@@ -173,6 +175,14 @@ def path_date(path: Path, sessions: Path) -> date | None:
         return None
 
 
+def modified_since(path: Path, since: date) -> bool:
+    """True if the file was written on or after local midnight of `since`."""
+    try:
+        return path.stat().st_mtime >= datetime.combine(since, time.min).timestamp()
+    except OSError:
+        return False
+
+
 def read_last_run(state: Path) -> date | None:
     try:
         return date.fromisoformat(json.loads(state.read_text(encoding="utf-8"))["last_run_date"])
@@ -211,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--since", type=date.fromisoformat, default=None,
                     help="only rollouts whose path date (YYYY/MM/DD) is on or after this ISO date, e.g. 2026-10-31")
     ap.add_argument("--since-last-run", action="store_true",
-                    help="daily reconcile: since the day before the last run, gap report on stderr")
+                    help="daily reconcile: rollouts modified since the day before the last run, gap report on stderr")
     ap.add_argument("--state", type=Path, default=home / ".local" / "state" / "turn-cost-ledger" / "last-run.json",
                     help="last-run file for --since-last-run")
     ap.add_argument("--format", choices=["csv", "jsonl"], default="csv")
@@ -225,7 +235,10 @@ def main(argv: list[str] | None = None) -> int:
     prices = load_prices(args.ledger_root)
     rows = []
     for path in sorted(args.sessions.rglob("*.jsonl")):
-        if args.since and (path_date(path, args.sessions) or date.min) < args.since:
+        if args.since_last_run:
+            if args.since and not modified_since(path, args.since):
+                continue
+        elif args.since and (path_date(path, args.sessions) or date.min) < args.since:
             continue
         rows.extend(turns_from_rollout(path, prices))
     rows.sort(key=lambda r: r["started_at"])

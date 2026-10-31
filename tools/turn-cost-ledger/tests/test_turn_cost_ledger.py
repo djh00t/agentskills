@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from unittest import mock
 
@@ -20,6 +20,11 @@ from fsm_ledger.ledger import append_dict  # noqa: E402
 def write_jsonl(path: Path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join((json.dumps(r) if not isinstance(r, str) else r) + "\n" for r in rows), encoding="utf-8")
+
+
+def set_mtime(path: Path, day: str):
+    ts = datetime.fromisoformat(f"{day}T12:00:00").timestamp()  # local noon
+    os.utime(path, (ts, ts))
 
 
 def usage(i, c, o, r=0):
@@ -57,6 +62,10 @@ class TurnCostLedgerTest(unittest.TestCase):
             {"type": "turn_context", "payload": {"turn_id": "t4", "model": "gpt-6.1-sol"}},
             {"type": "token_usage_record", "payload": {"turn_id": "t4", "response_id": "r6", "usage": usage(50, 0, 5)}},
         ])
+        # Rollouts are last written on their path date unless a test resumes one.
+        for day in ("2026/10/29", "2026/10/30", "2026/10/31"):
+            for path in (self.sessions / day).glob("*.jsonl"):
+                set_mtime(path, day.replace("/", "-"))
         self.append({"event_id": "codex:s1:r1", "session_id": "s1", "model": "deepseek-v4-flash",
                      "inputTokens": 100, "outputTokens": 10, "costTotal": 0.001})
         for rid in ("r5", "r6"):
@@ -133,6 +142,28 @@ class TurnCostLedgerTest(unittest.TestCase):
         self.assertEqual(json.loads(err.getvalue())["since"], "2026-10-31")
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             self.run_cli("--since-last-run", "--since", "2026-10-31", "--state", str(state))
+
+    def test_since_last_run_picks_up_resumed_session_in_old_rollout_by_mtime(self):
+        # Resuming session s3 appends turn t5 to its 2026/10/29 rollout on 2026-10-31.
+        old = self.sessions / "2026/10/29/rollout-c.jsonl"
+        with old.open("a", encoding="utf-8") as fh:
+            for rec in ({"type": "turn_context", "timestamp": "2026-10-31T03:00:00Z",
+                         "payload": {"turn_id": "t5", "model": "gpt-6.1-sol"}},
+                        {"type": "token_usage_record", "payload": {"turn_id": "t5", "response_id": "r7",
+                                                                   "usage": usage(10, 0, 1)}}):
+                fh.write(json.dumps(rec) + "\n")
+        set_mtime(old, "2026-10-31")
+        state = Path(self.tmp.name) / "state" / "last-run.json"
+        write_jsonl(state, [{"last_run_date": "2026-11-01"}])
+        err = io.StringIO()
+        with redirect_stderr(err):
+            self.assertEqual(set(self.run_cli("--since-last-run", "--state", str(state))),
+                             {"t1", "t3", "t4", "t5"})
+        report = json.loads(err.getvalue())
+        self.assertEqual((report["since"], report["turns"]), ("2026-10-31", 4))
+        self.assertEqual(report["by_day"]["2026-10-31"], {"cost_incomplete": 2, "no_wall_clock": 1})
+        # --since still filters on the path date, so the old rollout stays out there.
+        self.assertEqual(set(self.run_cli("--since", "2026-10-31")), {"t1"})
 
 
 if __name__ == "__main__":
