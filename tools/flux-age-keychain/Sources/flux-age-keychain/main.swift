@@ -7,7 +7,9 @@ import Foundation
 struct StandardInput: SecretInput {
     var isTerminal: Bool { isatty(STDIN_FILENO) == 1 }
 
-    func read(limit: Int) -> Data {
+    struct ReadError: Error {}
+
+    func read(limit: Int) throws -> Data {
         var buffer = [UInt8](repeating: 0, count: limit)
         defer { buffer.withUnsafeMutableBytes { _ = memset($0.baseAddress!, 0, $0.count) } }
         var count = 0
@@ -17,8 +19,10 @@ struct StandardInput: SecretInput {
             }
             if n > 0 {
                 count += n
-            } else if n == 0 || errno != EINTR {
+            } else if n == 0 {
                 break
+            } else if errno != EINTR {
+                throw ReadError()
             }
         }
         return Data(buffer[0..<count])

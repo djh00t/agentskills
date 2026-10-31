@@ -14,8 +14,9 @@ public enum Exit: Int32, Sendable {
 public protocol SecretInput {
     /// True when stdin is a terminal; secrets are refused then, so they are never echoed.
     var isTerminal: Bool { get }
-    /// Read until EOF or `limit` bytes, whichever comes first.
-    func read(limit: Int) -> Data
+    /// Read until EOF or `limit` bytes, whichever comes first. Throws on an I/O error,
+    /// so a partial secret is never stored.
+    func read(limit: Int) throws -> Data
 }
 
 public struct FixedInput: SecretInput {
@@ -211,8 +212,8 @@ public struct Runner {
         }
     }
 
-    /// Read one secret from stdin. A single trailing newline (as `printf '%s\n'` adds) is
-    /// dropped; empty, oversized, multi-line or NUL-containing input is refused. At most
+    /// Read one secret from stdin. A single trailing LF or CRLF (as `printf '%s\n'` adds)
+    /// is dropped; a lone CR is not, so it is refused as multi-line; empty, oversized, multi-line or NUL-containing input is refused. At most
     /// `maxInputBytes + 1` bytes are read: getting more than `maxInputBytes` means the
     /// input is too long and it is refused before any newline is stripped, so a secret is
     /// never silently truncated. A refused buffer is wiped.
@@ -220,13 +221,21 @@ public struct Runner {
         guard !input.isTerminal else {
             throw Failure(exit: .usage, message: "refusing to read a secret from a terminal; pipe it on stdin")
         }
-        var data = input.read(limit: maxInputBytes + 1)
+        var data: Data
+        do {
+            data = try input.read(limit: maxInputBytes + 1)
+        } catch {
+            throw Failure(exit: .usage, message: "could not read the secret from stdin")
+        }
         if data.count > maxInputBytes {
             wipe(&data)
             throw Failure(exit: .usage, message: "secret on stdin is larger than \(maxSecretBytes) bytes")
         }
-        if data.last == 0x0a { data.removeLast() }
-        if data.last == 0x0d { data.removeLast() }
+        if data.last == 0x0a {
+            data.removeLast()
+            // Drop a CR only as part of a trailing CRLF; a lone CR is refused below.
+            if data.last == 0x0d { data.removeLast() }
+        }
         let problem: String?
         if data.isEmpty {
             problem = "no secret on stdin"

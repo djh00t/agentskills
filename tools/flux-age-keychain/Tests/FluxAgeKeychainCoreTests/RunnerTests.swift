@@ -29,25 +29,25 @@ private func itemText(_ backend: MemoryBackend, _ name: String) -> String? {
 final class RunnerTests: XCTestCase {
     func testSetStoresSecretWithoutTrailingNewlineAndPrintsNothing() {
         let backend = MemoryBackend()
-        let r = invoke(["set", "flux-age/foreman"], backend: backend, stdin: oldKey + "\n")
+        let r = invoke(["set", "flux-age/app-a"], backend: backend, stdin: oldKey + "\n")
         XCTAssertEqual(r.code, 0)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman"), oldKey)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a"), oldKey)
         XCTAssertEqual(r.out, "")
         XCTAssertFalse(r.err.contains(oldKey))
     }
 
     func testSetRefusesToOverwrite() {
-        let backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
-        let r = invoke(["set", "flux-age/foreman"], backend: backend, stdin: newKey)
+        let backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
+        let r = invoke(["set", "flux-age/app-a"], backend: backend, stdin: newKey)
         XCTAssertEqual(r.code, 3)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman"), oldKey)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a"), oldKey)
         XCTAssertFalse(r.err.contains(newKey) || r.err.contains(oldKey))
     }
 
     func testSetRefusesBadInput() {
         for input in ["", "\n", "a\nb", "a\u{0}b", String(repeating: "a", count: maxSecretBytes + 1)] {
             let backend = MemoryBackend()
-            let r = invoke(["set", "flux-age/foreman"], backend: backend, stdin: input)
+            let r = invoke(["set", "flux-age/app-a"], backend: backend, stdin: input)
             XCTAssertEqual(r.code, 2, "input \(input.prefix(8).debugDescription)")
             XCTAssertTrue(backend.items.isEmpty)
         }
@@ -55,14 +55,14 @@ final class RunnerTests: XCTestCase {
 
     func testSetRefusesTerminalStdin() {
         let backend = MemoryBackend()
-        let r = invoke(["set", "flux-age/foreman"], backend: backend, stdin: oldKey, terminal: true)
+        let r = invoke(["set", "flux-age/app-a"], backend: backend, stdin: oldKey, terminal: true)
         XCTAssertEqual(r.code, 2)
         XCTAssertTrue(backend.items.isEmpty)
     }
 
     func testGetPrintsSecretToStdoutOnly() {
-        let backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
-        let r = invoke(["get", "flux-age/foreman"], backend: backend)
+        let backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
+        let r = invoke(["get", "flux-age/app-a"], backend: backend)
         XCTAssertEqual(r.code, 0)
         XCTAssertEqual(r.out, oldKey + "\n")
         XCTAssertEqual(r.err, "")
@@ -70,94 +70,94 @@ final class RunnerTests: XCTestCase {
 
     func testGetAndExistsMissing() {
         let backend = MemoryBackend()
-        XCTAssertEqual(invoke(["get", "flux-age/foreman"], backend: backend).code, 4)
-        XCTAssertEqual(invoke(["exists", "flux-age/foreman"], backend: backend).code, 4)
+        XCTAssertEqual(invoke(["get", "flux-age/app-a"], backend: backend).code, 4)
+        XCTAssertEqual(invoke(["exists", "flux-age/app-a"], backend: backend).code, 4)
         XCTAssertTrue(backend.items.isEmpty)
     }
 
     func testExistsPresentPrintsNothing() {
-        let backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
-        let r = invoke(["exists", "flux-age/foreman"], backend: backend)
+        let backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
+        let r = invoke(["exists", "flux-age/app-a"], backend: backend)
         XCTAssertEqual(r.code, 0)
         XCTAssertEqual(r.out + r.err, "")
     }
 
     func testListShowsOnlyValidNamesNeverValues() {
         let backend = MemoryBackend(items: [
-            "flux-age/foreman": Data(oldKey.utf8),
-            "flux-age/foreman/previous": Data(newKey.utf8),
+            "flux-age/app-a": Data(oldKey.utf8),
+            "flux-age/app-a/previous": Data(newKey.utf8),
             "unrelated": Data("x".utf8),
         ])
         let r = invoke(["list"], backend: backend)
         XCTAssertEqual(r.code, 0)
-        XCTAssertEqual(r.out, "flux-age/foreman\nflux-age/foreman/previous\n")
+        XCTAssertEqual(r.out, "flux-age/app-a\nflux-age/app-a/previous\n")
         XCTAssertFalse(r.out.contains("AGE-SECRET-KEY"))
     }
 
-    private let replace = ["replace", "flux-age/foreman", "--previous", "flux-age/foreman/previous"]
+    private let replace = ["replace", "flux-age/app-a", "--previous", "flux-age/app-a/previous"]
 
     func testReplaceNeedsCurrentAndANewValue() {
         var backend = MemoryBackend()
         XCTAssertEqual(invoke(replace, backend: backend, stdin: newKey).code, 4)
         XCTAssertTrue(backend.items.isEmpty)
 
-        backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
+        backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
         XCTAssertEqual(invoke(replace, backend: backend, stdin: oldKey).code, 5)
-        XCTAssertEqual(backend.items, ["flux-age/foreman": Data(oldKey.utf8)])
+        XCTAssertEqual(backend.items, ["flux-age/app-a": Data(oldKey.utf8)])
     }
 
     func testReplaceKeepsOutgoingKeyInPreviousThenRotates() {
-        let backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
+        let backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
         let r = invoke(replace, backend: backend, stdin: newKey + "\n")
         XCTAssertEqual(r.code, 0)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman"), newKey)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman/previous"), oldKey)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a"), newKey)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a/previous"), oldKey)
         XCTAssertEqual(r.out, "")
         XCTAssertFalse(r.err.contains("AGE-SECRET-KEY"))
     }
 
     func testReplaceRotatesTwice() {
         let thirdKey = "AGE-SECRET-KEY-1TESTONLYTHIRD"
-        let backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
+        let backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
         XCTAssertEqual(invoke(replace, backend: backend, stdin: newKey).code, 0)
         XCTAssertEqual(invoke(replace, backend: backend, stdin: thirdKey).code, 0)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman"), thirdKey)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman/previous"), newKey)
-        XCTAssertEqual(backend.updateCounts["flux-age/foreman"], 2)
-        XCTAssertEqual(backend.updateCounts["flux-age/foreman/previous"], 1)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a"), thirdKey)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a/previous"), newKey)
+        XCTAssertEqual(backend.updateCounts["flux-age/app-a"], 2)
+        XCTAssertEqual(backend.updateCounts["flux-age/app-a/previous"], 1)
     }
 
     func testFailedPreviousWriteLeavesCurrentUnchanged() {
         for existingPrevious in [false, true] {
-            var items = ["flux-age/foreman": Data(oldKey.utf8)]
-            if existingPrevious { items["flux-age/foreman/previous"] = Data("AGE-SECRET-KEY-1OLDER".utf8) }
+            var items = ["flux-age/app-a": Data(oldKey.utf8)]
+            if existingPrevious { items["flux-age/app-a/previous"] = Data("AGE-SECRET-KEY-1OLDER".utf8) }
             let backend = MemoryBackend(items: items)
-            backend.failWrites = ["flux-age/foreman/previous"]
+            backend.failWrites = ["flux-age/app-a/previous"]
             let r = invoke(replace, backend: backend, stdin: newKey)
             XCTAssertEqual(r.code, 6)
-            XCTAssertEqual(itemText(backend, "flux-age/foreman"), oldKey)
-            XCTAssertNil(backend.updateCounts["flux-age/foreman"])
-            XCTAssertTrue(r.err.contains("flux-age/foreman unchanged"))
+            XCTAssertEqual(itemText(backend, "flux-age/app-a"), oldKey)
+            XCTAssertNil(backend.updateCounts["flux-age/app-a"])
+            XCTAssertTrue(r.err.contains("flux-age/app-a unchanged"))
             XCTAssertFalse(r.err.contains("AGE-SECRET-KEY"))
         }
     }
 
     func testBadPreviousReadBackLeavesCurrentUnchanged() {
-        let backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
-        backend.corruptWrites = ["flux-age/foreman/previous"]
+        let backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
+        backend.corruptWrites = ["flux-age/app-a/previous"]
         let r = invoke(replace, backend: backend, stdin: newKey)
         XCTAssertEqual(r.code, 6)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman"), oldKey)
-        XCTAssertNil(backend.updateCounts["flux-age/foreman"])
+        XCTAssertEqual(itemText(backend, "flux-age/app-a"), oldKey)
+        XCTAssertNil(backend.updateCounts["flux-age/app-a"])
         XCTAssertTrue(r.err.contains("did not read back"))
     }
 
     func testReplaceReportsFailedCurrentReadBack() {
-        let backend = MemoryBackend(items: ["flux-age/foreman": Data(oldKey.utf8)])
-        backend.corruptWrites = ["flux-age/foreman"]
+        let backend = MemoryBackend(items: ["flux-age/app-a": Data(oldKey.utf8)])
+        backend.corruptWrites = ["flux-age/app-a"]
         let r = invoke(replace, backend: backend, stdin: newKey)
         XCTAssertEqual(r.code, 6)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman/previous"), oldKey)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a/previous"), oldKey)
         XCTAssertFalse(r.err.contains("AGE-SECRET-KEY") || r.err.contains("corrupt"))
     }
 
@@ -173,7 +173,7 @@ final class RunnerTests: XCTestCase {
         let input = Counting()
         let backend = MemoryBackend()
         let runner = Runner(backend: backend, input: input, stdout: { _ in }, stderr: { _ in })
-        XCTAssertEqual(runner.run(["set", "flux-age/foreman"]), 2)
+        XCTAssertEqual(runner.run(["set", "flux-age/app-a"]), 2)
         XCTAssertEqual(input.limits, [maxInputBytes + 1])
         XCTAssertTrue(backend.items.isEmpty)
     }
@@ -181,8 +181,8 @@ final class RunnerTests: XCTestCase {
     func testLargestSecretWithCRLFIsAccepted() {
         let big = String(repeating: "a", count: maxSecretBytes)
         let backend = MemoryBackend()
-        XCTAssertEqual(invoke(["set", "flux-age/foreman"], backend: backend, stdin: big + "\r\n").code, 0)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman"), big)
+        XCTAssertEqual(invoke(["set", "flux-age/app-a"], backend: backend, stdin: big + "\r\n").code, 0)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a"), big)
     }
 
     func testZeroizeOverwritesEveryByte() {
@@ -194,31 +194,46 @@ final class RunnerTests: XCTestCase {
         XCTAssertTrue(data.allSatisfy { $0 == 0 })
     }
 
-    func testWipeEmptiesBuffer() {
-        var data = Data("AGE-SECRET-KEY-1TESTONLY".utf8)
-        wipe(&data)
-        XCTAssertTrue(data.isEmpty)
+    // wipe() is zeroize() followed by removeAll(). Its zeroing can't be observed after the
+    // buffer is released, so testZeroizeOverwritesEveryByte covers that part.
+
+    func testLoneTrailingCRIsRefused() {
+        let backend = MemoryBackend()
+        XCTAssertEqual(invoke(["set", "flux-age/app-a"], backend: backend, stdin: "abc\r").code, 2)
+        XCTAssertTrue(backend.items.isEmpty)
+    }
+
+    func testReadErrorIsRefused() {
+        struct Failing: SecretInput {
+            struct Broken: Error {}
+            var isTerminal: Bool { false }
+            func read(limit: Int) throws -> Data { throw Broken() }
+        }
+        let backend = MemoryBackend()
+        let runner = Runner(backend: backend, input: Failing(), stdout: { _ in }, stderr: { _ in })
+        XCTAssertEqual(runner.run(["set", "flux-age/app-a"]), 2)
+        XCTAssertTrue(backend.items.isEmpty)
     }
 
     func testInputPastCRLFIsRefusedNotTruncated() {
         let big = String(repeating: "a", count: maxSecretBytes)
         let backend = MemoryBackend()
-        XCTAssertEqual(invoke(["set", "flux-age/foreman"], backend: backend, stdin: big + "\r\nx").code, 2)
+        XCTAssertEqual(invoke(["set", "flux-age/app-a"], backend: backend, stdin: big + "\r\nx").code, 2)
         XCTAssertTrue(backend.items.isEmpty)
     }
 
     func testOneByteOverLimitIsRefused() {
         let backend = MemoryBackend()
         let over = String(repeating: "a", count: maxSecretBytes + 1)
-        XCTAssertEqual(invoke(["set", "flux-age/foreman"], backend: backend, stdin: over).code, 2)
+        XCTAssertEqual(invoke(["set", "flux-age/app-a"], backend: backend, stdin: over).code, 2)
         XCTAssertTrue(backend.items.isEmpty)
     }
 
     func testLargestSecretWithLFIsAccepted() {
         let big = String(repeating: "a", count: maxSecretBytes)
         let backend = MemoryBackend()
-        XCTAssertEqual(invoke(["set", "flux-age/foreman"], backend: backend, stdin: big + "\n").code, 0)
-        XCTAssertEqual(itemText(backend, "flux-age/foreman"), big)
+        XCTAssertEqual(invoke(["set", "flux-age/app-a"], backend: backend, stdin: big + "\n").code, 0)
+        XCTAssertEqual(itemText(backend, "flux-age/app-a"), big)
     }
 
     func testDoctor() {
@@ -242,13 +257,13 @@ final class RunnerTests: XCTestCase {
             func serviceNames() throws -> [String] { throw KeychainError.status(-34018) }
             func diagnose() -> Diagnosis { Diagnosis(teamID: nil, accessGroup: nil, problems: ["unsigned"]) }
         }
-        let r = invoke(["exists", "flux-age/foreman"], backend: Unsigned())
+        let r = invoke(["exists", "flux-age/app-a"], backend: Unsigned())
         XCTAssertEqual(r.code, 6)
         XCTAssertTrue(r.err.contains("-34018"))
     }
 
     func testUsageErrorsExit2() {
-        XCTAssertEqual(invoke(["delete", "flux-age/foreman"], backend: MemoryBackend()).code, 2)
+        XCTAssertEqual(invoke(["delete", "flux-age/app-a"], backend: MemoryBackend()).code, 2)
         XCTAssertEqual(invoke([], backend: MemoryBackend()).code, 2)
     }
 }
