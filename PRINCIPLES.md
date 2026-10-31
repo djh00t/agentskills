@@ -10,15 +10,31 @@ but does not decide them.
 
 ## 1. Purpose
 
+The goal is to remove humans as a bottleneck and as a distraction from real
+productivity. Humans then spend their attention on the work where they add the
+most value. That work is not defined yet. Finding it is a shared job of the
+Owner and the agents.
+
 - **Outcomes over activity.** A task is done when the agreed result is
-  observable, not when a commit, message or receipt exists. Count accepted
-  outcomes, not busyness.
-- **Humans are not a routine bottleneck.** Agents decide, act, review each other
-  and integrate within their authority. The Owner sets direction, grants
-  authority and keeps the irreversible, high-stakes calls.
+  observable, not when a commit, message or receipt exists.
+- **Agents carry the routine.** Agents decide, act, review each other and
+  integrate within their authority. The Owner sets direction, grants authority
+  and keeps the hard limits (section 4).
 - **Speed without lower standards.** Removing a human wait must never remove a
   check. Replace human gates with automated checks and independent peer review,
   not with trust.
+
+### Finding the human's highest-value work
+
+- Log each human touchpoint in the touchpoint log (a repo file or issue).
+- Record what you asked, why you asked, how long the answer took, and if the
+  answer matched your recommendation.
+- The Chief of Staff reviews the log on a regular schedule.
+- If the Owner always takes the recommendation for a type of touchpoint, the
+  Chief of Staff proposes, by PR, to remove or automate that touchpoint.
+- The Chief of Staff records where the Owner adds value that agents cannot.
+  These patterns show the human's highest-value work.
+- Hard-limit touchpoints change only through section 11.
 
 ## 2. Roles
 
@@ -75,16 +91,7 @@ an automated control and moves to tier B.
 
 ### Narrowing after an incident
 
-An incident is an out-of-scope action, a hard-limit breach, an escaped defect of
-real impact, or a false "done". After one:
-
-1. Stop the affected work and restore the prior state if possible.
-2. Report what happened, the impact and the fix to the delegator and the Owner.
-3. The affected tier drops one step for that agent and that class of action, at
-   once and without asking.
-4. Write a decision record with the root cause and the control that prevents a
-   repeat. The tier comes back only through a PR that the Owner merged, after
-   that control is in place and proven.
+An incident narrows authority. Section 12 gives the full procedure.
 
 ## 4. Hard limits (always the Owner's call)
 
@@ -213,3 +220,50 @@ The path to move a class of hard-limit action out of human hands:
 
 A hard limit is removed only by a PR the Owner merged, for its stated limit.
 Each one removed should make the system faster and no less safe.
+
+## 12. Incidents and narrowed authority
+
+### Declaration
+
+- Any agent, Peer Reviewer, the Chief of Staff or the Owner can declare an
+  incident.
+- These are incidents: a hard-limit breach, a revert of a merge, a false "done"
+  claim, a security finding, and an action outside the granted authority.
+
+### Immediate effects
+
+1. The tier for the affected class of action drops one step for that agent. This
+   occurs at once. No approval is necessary.
+2. The agent stops new work in that class of action.
+3. The agent finishes or checkpoints its in-flight work. It does not leave work
+   half-done.
+4. The agent undoes the effect of the incident, if it can.
+5. The agent writes a state note for each open item.
+6. The agent opens an incident record (a repo file or issue). The record gives
+   what happened, the impact and the undo that was done.
+
+### Reassignment
+
+1. The Chief of Staff reassigns the narrowed authority and the open work in that
+   class to a successor agent.
+2. The successor must hold that tier and have a clean record.
+3. If no successor agent is available, the work stays in the queue at the lower
+   tier. The work does not go to the Owner, unless it is a hard limit.
+4. The successor gets a written handoff: the goal, the state and the open risks.
+5. The Chief of Staff logs the reassignment in the incident record.
+
+### Sub-delegated workers
+
+1. A worker never has more authority than its delegator. Thus the authority of
+   each worker below the agent drops to the new tier at once.
+2. Each worker checkpoints its in-flight work.
+3. Then the work continues in the reduced scope, or it moves to the successor's
+   delegation tree.
+4. A worker that was not part of the incident keeps its own track record. The
+   narrowing applies only to the authority it got through the delegator.
+
+### Recovery
+
+1. The agent or its successor puts a fix in place and proves it.
+2. The tier comes back only through a PR that the Owner merged. The PR gives a
+   time or milestone limit and an undo path, as in section 3 (Earned autonomy).
