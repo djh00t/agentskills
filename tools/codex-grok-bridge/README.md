@@ -10,6 +10,10 @@ The shipped `{}` roster is invalid, so every parse and format call rejects it
 until a populated roster is supplied. A CRLF-terminated header does not match;
 the parser treats the full message as informational text with no header.
 
+`cg_log.py` stores message state in an atomic, locked TSV log. Each sequence is
+recorded once and can move from `received` to `routed` to `acked` to `done`, or
+to `failed`. A legacy last-sequence file can seed the cursor on first use.
+
 ## Checks
 
 ```shell
