@@ -5,9 +5,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$PLUGIN_ROOT/.codex-plugin/codex-turn-events-hook stop",
+            "command": "\"$PLUGIN_ROOT/.codex-plugin/codex-turn-events-hook\" stop",
             "async": true,
-            "statusMessage": "codex-turn-events Stop"
+            "statusMessage": "codex-turn-events Stop",
+            "timeout": 30
           }
         ]
       }
@@ -17,9 +18,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$PLUGIN_ROOT/.codex-plugin/codex-turn-events-hook permission_request",
+            "command": "\"$PLUGIN_ROOT/.codex-plugin/codex-turn-events-hook\" permission_request",
             "async": true,
-            "statusMessage": "codex-turn-events needs approval"
+            "statusMessage": "codex-turn-events needs approval",
+            "timeout": 30
           }
         ]
       }

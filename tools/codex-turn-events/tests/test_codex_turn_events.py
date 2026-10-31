@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import stat
 import tempfile
 import threading
 import unittest
@@ -11,131 +12,125 @@ from unittest import mock
 
 import codex_turn_events as cte
 
-URL_SECRET, KEY_SECRET = "http://127.0.0.1:{port}/hook/secret-path-xyz", "key-secret-abc"
+KEY_SECRET, PATH_SECRET = "key-secret-abc", "/hook/secret-path-xyz"
 
 
-def write_jsonl(path: Path, rows):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-
-
-def usage(i, c, o):
-    return {"input_tokens": i, "cached_input_tokens": c, "cache_write_input_tokens": 0,
-            "output_tokens": o, "reasoning_output_tokens": 0}
-
-
-def rollout(session, turn, started, complete=True):
-    rows = [
-        {"type": "session_meta", "payload": {"session_id": session, "cwd": "/w/agentskills"}},
-        {"type": "turn_context", "payload": {"turn_id": turn, "model": "gpt-6.1-sol", "cwd": "/w/agentskills"}},
-        {"type": "event_msg", "payload": {"type": "task_started", "turn_id": turn, "started_at": started}},
-        {"type": "token_usage_record", "payload": {"turn_id": turn, "response_id": "r1", "usage": usage(100, 40, 10)}},
-        {"type": "token_usage_record", "payload": {"turn_id": turn, "response_id": "r2", "usage": "broken"}},
-    ]
-    if complete:
-        rows.append({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": turn,
-                                                      "started_at": started, "duration_ms": 4200}})
-    return rows
-
-
-class Capture(BaseHTTPRequestHandler):
+def capture_server(status=204, location=None):
+    """Local HTTP server recording each request; optionally answers with a redirect."""
     seen = []
 
-    def do_POST(self):  # noqa: N802
-        body = self.rfile.read(int(self.headers["Content-Length"]))
-        Capture.seen.append({"path": self.path, "auth": self.headers.get("Authorization"), "body": json.loads(body)})
-        self.send_response(204)
-        self.end_headers()
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            body = self.rfile.read(int(self.headers["Content-Length"] or 0))
+            seen.append({"auth": self.headers.get("Authorization"), "body": json.loads(body or b"{}")})
+            self.send_response(status)
+            if location:
+                self.send_header("Location", location)
+            self.end_headers()
 
-    def log_message(self, *args):
-        pass
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, seen, f"http://127.0.0.1:{server.server_port}{PATH_SECRET}"
 
 
 class CodexTurnEventsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
-        self.state, self.sessions = root / "state", root / "sessions"
-        self.server = HTTPServer(("127.0.0.1", 0), Capture)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        Capture.seen = []
-        self.url = URL_SECRET.format(port=self.server.server_port)
-        self.env = mock.patch.dict(os.environ, {
-            "CODEX_TURN_EVENTS_DIR": str(self.state), "CODEX_SESSIONS_DIR": str(self.sessions),
-            "CODEX_EVENTS_WEBHOOK_URL": self.url, "CODEX_EVENTS_WEBHOOK_KEY": KEY_SECRET})
+        self.state = Path(self.tmp.name) / "state"
+        self.server, self.seen, self.url = capture_server()
+        self.servers = [self.server]
+        self.env = mock.patch.dict(os.environ, {"CODEX_TURN_EVENTS_DIR": str(self.state),
+                                                "CODEX_EVENTS_WEBHOOK_URL": self.url,
+                                                "CODEX_EVENTS_WEBHOOK_KEY": KEY_SECRET})
         self.env.start()
 
     def tearDown(self):
         self.env.stop()
-        self.server.shutdown()
-        self.server.server_close()
+        for s in self.servers:
+            s.shutdown()
+            s.server_close()
         self.tmp.cleanup()
 
     def hook(self, event, payload):
         out = io.StringIO()
-        with redirect_stdout(out), mock.patch("sys.stdin", io.StringIO(payload if isinstance(payload, str) else json.dumps(payload))):
+        text = payload if isinstance(payload, str) else json.dumps(payload)
+        with redirect_stdout(out), mock.patch("sys.stdin", io.StringIO(text)):
             cte.main(["hook", event])
         return out.getvalue()
 
     def rows(self, name):
-        return list(cte.read_jsonl(self.state / name))
+        path = self.state / name
+        return [json.loads(x) for x in path.read_text().splitlines()] if path.exists() else []
 
-    def assert_no_secrets_on_disk(self):
-        for f in self.state.rglob("*"):
-            text = f.read_text()
-            self.assertNotIn("secret-path-xyz", text)
-            self.assertNotIn(KEY_SECRET, text)
+    def assert_private_on_disk(self):
+        self.assertEqual(stat.S_IMODE(self.state.stat().st_mode), 0o700)
+        for f in self.state.iterdir():
+            self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600, f.name)
+            self.assertNotIn("secret-path-xyz", f.read_text())
+            self.assertNotIn(KEY_SECRET, f.read_text())
 
-    def test_stop_logs_turn_and_posts_event(self):
-        path = self.sessions / "2026/10/31/rollout-a.jsonl"
-        write_jsonl(path, rollout("s1", "t1", 1793408935))
-        out = self.hook("stop", {"session_id": "s1", "turn_id": "t1", "cwd": "/w/agentskills", "model": "gpt-6.1-sol",
-                                 "transcript_path": str(path),
-                                 "last_assistant_message": "Opened https://github.com/djh00t/agentskills/pull/26 for review."})
-        self.assertEqual(out.strip(), "{}")
-        turn = self.rows("turns.jsonl")[0]
-        self.assertEqual((turn["model"], turn["calls"], turn["input_tokens"], turn["cache_read_tokens"]), ("gpt-6.1-sol", 1, 100, 40))
-        self.assertEqual((turn["wall_clock_s"], turn["wall_clock_exact"]), (4.2, True))
-        sent = Capture.seen[0]
-        self.assertEqual(sent["auth"], f"Bearer {KEY_SECRET}")
-        self.assertEqual({k: sent["body"][k] for k in ("event", "session_id", "task", "status", "pr_url")},
-                         {"event": "turn_complete", "session_id": "s1", "task": "agentskills", "status": "completed",
-                          "pr_url": "https://github.com/djh00t/agentskills/pull/26"})
-        self.assertTrue(self.rows("events.jsonl")[0]["posted"])
-        self.assert_no_secrets_on_disk()
+    def test_stop_posts_minimal_turn_complete_with_stable_event_id(self):
+        payload = {"session_id": "s1", "turn_id": "t1", "cwd": "/home/me/agentskills", "model": "gpt-6.1-sol",
+                   "stop_hook_active": False,
+                   "last_assistant_message": "Secret-ish text. Opened https://github.com/o/r/pull/26."}
+        self.assertEqual(self.hook("stop", payload).strip(), "{}")
+        self.assertEqual(self.hook("stop", payload | {"stop_hook_active": True}).strip(), "{}")
+        first, second = (s["body"] for s in self.seen)
+        self.assertEqual(self.seen[0]["auth"], f"Bearer {KEY_SECRET}")
+        self.assertEqual(set(first), {"source", "event", "event_id", "session_id", "turn_id", "task", "model",
+                                      "status", "pr_url", "stop_hook_active", "ts"})
+        self.assertEqual((first["event_id"], first["task"], first["pr_url"], first["stop_hook_active"]),
+                         ("codex:s1:t1:turn_complete", "agentskills", "https://github.com/o/r/pull/26", False))
+        self.assertEqual((second["event_id"], second["stop_hook_active"]), (first["event_id"], True))
+        self.assertNotIn("Secret-ish", json.dumps(first))
+        self.assertTrue(all(r["posted"] for r in self.rows("delivery.jsonl")))
+        self.assert_private_on_disk()
 
-    def test_permission_request_posts_needs_approval_and_starts_wait_clock(self):
-        out = self.hook("permission_request", {"session_id": "s1", "turn_id": "t1", "cwd": "/w/agentskills",
-                                               "tool_name": "shell", "tool_input": {"description": "git push"}})
-        self.assertEqual(out.strip(), "{}")
-        body = Capture.seen[0]["body"]
-        self.assertEqual((body["event"], body["status"], body["tool_name"], body["description"]),
-                         ("needs_approval", "waiting_for_human", "shell", "git push"))
-        self.assertTrue(self.rows("events.jsonl")[0]["wait_started_at"])
-        self.assert_no_secrets_on_disk()
+    def test_permission_request_posts_needs_approval_without_description(self):
+        payload = {"session_id": "s1", "turn_id": "t1", "cwd": "/home/me/agentskills", "tool_name": "Bash",
+                   "tool_input": {"command": "git push", "description": "push secret branch"}}
+        self.hook("permission_request", payload)
+        self.hook("permission_request", payload)
+        a, b = (s["body"] for s in self.seen)
+        self.assertEqual((a["event"], a["status"], a["tool_name"]), ("needs_approval", "waiting_for_human", "Bash"))
+        self.assertTrue(a["event_id"].startswith("codex:s1:t1:needs_approval:"))
+        self.assertEqual(a["event_id"], b["event_id"])
+        self.assertTrue(a["wait_started_at"])
+        for leak in ("description", "cwd", "summary", "git push", "/home/me"):
+            self.assertNotIn(leak, json.dumps(a))
+        self.assert_private_on_disk()
+
+    def test_redirect_is_refused_and_key_never_follows(self):
+        other, other_seen, other_url = capture_server()
+        redirector, _, redirect_url = capture_server(status=302, location=other_url)
+        self.servers += [other, redirector]
+        with mock.patch.dict(os.environ, {"CODEX_EVENTS_WEBHOOK_URL": redirect_url}):
+            self.assertEqual(self.hook("stop", {"session_id": "s1", "turn_id": "t1"}).strip(), "{}")
+        self.assertEqual(other_seen, [])
+        row = self.rows("delivery.jsonl")[0]
+        self.assertEqual((row["posted"], row["post_status"]), (False, 302))
+        self.assert_private_on_disk()
+
+    def test_url_must_be_https_or_local_http(self):
+        self.assertTrue(cte.url_allowed("https://hooks.example.com/x"))
+        self.assertTrue(cte.url_allowed("http://localhost:8080/x"))
+        self.assertFalse(cte.url_allowed("http://hooks.example.com/x"))
+        self.assertFalse(cte.url_allowed("ftp://127.0.0.1/x"))
+        with mock.patch.dict(os.environ, {"CODEX_EVENTS_WEBHOOK_URL": "http://hooks.example.com/secret-path-xyz"}):
+            self.hook("stop", {"session_id": "s1", "turn_id": "t1"})
+        self.assertEqual(self.rows("delivery.jsonl")[0]["post_error"], "invalid_url")
+        self.assert_private_on_disk()
 
     def test_hook_never_fails_the_turn(self):
         with mock.patch.dict(os.environ, {"CODEX_EVENTS_WEBHOOK_URL": "http://127.0.0.1:9/x"}):
             self.assertEqual(self.hook("stop", {"session_id": "s1", "turn_id": "t9"}).strip(), "{}")
-        self.assertFalse(self.rows("events.jsonl")[0]["posted"])
+        self.assertFalse(self.rows("delivery.jsonl")[0]["posted"])
         self.assertEqual(self.hook("stop", "not json").strip(), "{}")
         self.assertEqual(self.rows("hook-errors.jsonl")[0]["error"], "JSONDecodeError")
-        self.assert_no_secrets_on_disk()
-
-    def test_reconcile_fills_missed_turns_once_and_reports_gaps(self):
-        write_jsonl(self.sessions / "2026/10/30/rollout-old.jsonl", rollout("s0", "t0", 1793300000))
-        write_jsonl(self.sessions / "2026/10/31/rollout-a.jsonl", rollout("s1", "t1", 1793408935))
-        write_jsonl(self.sessions / "2026/10/31/rollout-b.jsonl", rollout("s2", "t2", 1793409000, complete=False))
-        cte.append_jsonl("turns.jsonl", {"session_id": "s1", "turn_id": "t1", "wall_clock_exact": False})
-        with redirect_stdout(io.StringIO()):
-            first = cte.reconcile(cte.date(2026, 10, 31))
-        self.assertEqual((first["turns"], first["filled_missing"], first["upgraded_wall_clock"]), (2, 1, 1))
-        self.assertEqual(first["missing_by_day"], {"2026-10-31": 1})
-        t2 = [r for r in self.rows("turns.jsonl") if r["turn_id"] == "t2"][0]
-        self.assertIsNone(t2["wall_clock_s"])
-        second = cte.reconcile(cte.date(2026, 10, 31))
-        self.assertEqual((second["filled_missing"], second["upgraded_wall_clock"]), (0, 0))
-        self.assertTrue((self.state / "reconcile-state.json").exists())
+        self.assert_private_on_disk()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
   "name": "codex-turn-events",
-  "version": "0.1.0",
-  "description": "Log each Codex turn (model, tokens, wall clock) and push turn_complete / needs_approval events to a webhook.",
+  "version": "0.2.0",
+  "description": "Push turn_complete and needs_approval events from Codex to a webhook.",
   "hooks": "./.codex-plugin/hooks.json"
 }
