@@ -40,6 +40,9 @@ def iso_z(dt):
 
 
 def parse_item_id(value):
-    if not re.fullmatch(r"[0-9]+", value):
-        raise argparse.ArgumentTypeError("item id must contain ASCII digits")
-    return int(value)
+    if re.fullmatch(r"[1-9][0-9]*", value):
+        try:
+            return int(value)
+        except ValueError:
+            pass
+    raise argparse.ArgumentTypeError("item id must be a positive integer using only ASCII digits")
