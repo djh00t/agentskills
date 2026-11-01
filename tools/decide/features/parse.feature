@@ -24,6 +24,16 @@ Feature: Parse an owner's answer text
     Given the reply text is "152: B, ok？"
     Then it parses as question 152
 
+  Scenario: any supported Unicode question mark anywhere makes the reply a question
+    Given the reply text is "152: B, ok<mark>" for each listed mark
+    Then it parses as question 152
+    Examples: U+037E, U+061F, U+2E2E, U+203D, U+2048, U+055E, U+1367
+
+  Scenario: question text remains a question after punctuation or invisible text
+    Given the reply text is "152: B, ok?<tail>" for each listed tail
+    Then it parses as question 152
+    Examples: empty, !, " thanks", two newlines then thanks, U+3164, U+2800, U+034F, U+FE0F
+
   Scenario: a trailing zero-width space does not hide a question
     Given the reply text is "152: B?\u200b"
     Then it parses as question 152
@@ -34,6 +44,18 @@ Feature: Parse an owner's answer text
 
   Scenario: a second decision on a new line is ambiguous
     Given the reply text is "152: B\n153: A"
+    Then it parses as ambiguous
+
+  Scenario: a second hash id in a reason is ambiguous
+    Given the reply text is "152: B, see #153"
+    Then it parses as ambiguous
+
+  Scenario: a second space-form decision is ambiguous
+    Given the reply text is "152: B and 153 C"
+    Then it parses as ambiguous
+
+  Scenario: a second lowercase decision is ambiguous
+    Given the reply text is "152: b\n153: a"
     Then it parses as ambiguous
 
   Scenario: approve N picks the recommendation
