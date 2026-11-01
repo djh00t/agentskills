@@ -45,9 +45,13 @@ def normalize(text):
     return text
 
 
+def join_wraps(text):
+    return re.sub(r"[ \t]*\\?(?:\r\n|[\r\n\x85\u2028\u2029])[ \t]*", "", text)
+
+
 def scan_text(text):
     text = normalize(text)
-    variants = (text, re.sub(r"[ \t]*\\?(?:\r\n|[\r\n\x85\u2028\u2029])[ \t]*", "", text))
+    variants = (text, join_wraps(text))
     return [
         name for name, pattern in GENERIC_PATTERNS
         if any(
@@ -60,15 +64,17 @@ def scan_text(text):
 
 def scan_private(text, cfg):
     text = normalize(text)
-    return [name for name, pattern in cfg.private if pattern.search(text)]
+    return [name for name, pattern in cfg.private if pattern.search(text) or pattern.search(join_wraps(text))]
 
 
 def mask_text(text, cfg):
-    text = normalize(text)
+    text = join_wraps(normalize(text))
     hits = []
     for name, pattern, replacement in cfg.masks:
         if pattern.search(text):
-            text = pattern.sub(replacement, text)
+            text = pattern.sub(lambda match: "[masked:{}]".format(name)
+                               if match.group() in match.expand(replacement)
+                               else match.expand(replacement), text)
             if name not in hits:
                 hits.append(name)
     for name, pattern in GENERIC_PATTERNS + list(cfg.private):
@@ -123,6 +129,12 @@ def _lint_files(args):
                 if pattern.search(line):
                     results.append({"path": filename, "line": number, "pattern": "mask:" + name})
                     output.append("{}:{}: mask:{}".format(filename, number, name))
+        for number in range(len(lines) - 1):
+            pair = join_wraps(normalize(lines[number] + "\n" + lines[number + 1]))
+            for name in scan_private(pair, cfg) + ["mask:" + name for name, pattern, _ in cfg.masks if pattern.search(pair)]:
+                if not any(item["path"] == filename and item["line"] in (number + 1, number + 2) and item["pattern"] == name for item in results):
+                    results.append({"path": filename, "line": number + 1, "pattern": name})
+                    output.append("{}:{}: {}".format(filename, number + 1, name))
     emit(args, results, "\n".join(output))
     return EXIT_VALIDATION if results else EXIT_OK
 
