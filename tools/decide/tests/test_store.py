@@ -109,6 +109,111 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(Store(home).verify()["ok"])
         self.assertEqual(list(range(1, 81)), [event["seq"] for event in events])
 
+    def test_verify_rejects_tampering(self):
+        """verify-log rejects tampering"""
+        for kind in ("reorder", "truncate", "fork", "garbled", "blank", "seq"):
+            with self.subTest(kind=kind):
+                store = _three_event_store()
+                lines = store.path.read_bytes().splitlines()
+                if kind == "reorder":
+                    lines[0], lines[1] = lines[1], lines[0]
+                elif kind == "truncate":
+                    lines.pop()
+                elif kind == "fork":
+                    lines.append(lines[-1])
+                elif kind == "garbled":
+                    lines[-1] = b"{"
+                elif kind == "blank":
+                    lines.insert(1, b"")
+                else:
+                    event = json.loads(lines[-1]); event["seq"] = 7
+                    lines[-1] = json.dumps(event, sort_keys=True, separators=(",", ":")).encode()
+                store.path.write_bytes(b"\n".join(lines) + b"\n")
+                result = store.verify()
+                self.assertFalse(result["ok"])
+                if kind == "seq":
+                    self.assertEqual("seq gap", result["reason"])
+                if kind in ("garbled", "blank"):
+                    self.assertEqual("not JSON", result["reason"])
+                code, out, _ = run(["--json", "--home", str(store.home), "verify-log"])
+                self.assertEqual(3, code)
+                self.assertEqual(result, json.loads(out))
+
+    def test_verify_rejects_invalid_event_shape(self):
+        """verify-log rejects invalid event shape"""
+        for field, value in (("seq", True), ("ts", "junk"), ("type", ""), ("extra", 1), ("id", None)):
+            with self.subTest(field=field):
+                store = _three_event_store()
+                lines = store.path.read_bytes().splitlines()
+                event = json.loads(lines[-1])
+                if field == "id":
+                    del event[field]
+                else:
+                    event[field] = value
+                lines[-1] = json.dumps(event, sort_keys=True, separators=(",", ":")).encode()
+                store.path.write_bytes(b"\n".join(lines) + b"\n")
+                self.assertEqual("invalid event shape", store.verify()["reason"])
+
+    def test_insecure_store_paths_are_refused(self):
+        """insecure store paths are refused"""
+        for name in ("events.jsonl", ".lock", "head"):
+            for mode in (0o644, 0o666):
+                with self.subTest(name=name, mode=mode):
+                    home = temp_home(); path = home / name
+                    path.touch(mode=mode); path.chmod(mode)
+                    with self.assertRaises(DecideError):
+                        with Store(home).lock() as store:
+                            store.append("ask", 1, {})
+            with self.subTest(name=name, symlink=True):
+                home = temp_home(); target = home / "target"; target.touch(mode=0o600)
+                (home / name).symlink_to(target)
+                with self.assertRaises(DecideError):
+                    with Store(home).lock() as store:
+                        store.append("ask", 1, {})
+        home = temp_home(); (home / "events.jsonl").mkdir(mode=0o700)
+        with self.assertRaises(DecideError):
+            Store(home).verify()
+        home = temp_home(); home.chmod(0o705)
+        with self.assertRaises(DecideError):
+            Store(home)
+
+    def test_home_must_be_directory(self):
+        """home must be a directory"""
+        home = temp_home() / "file"; home.touch(mode=0o600)
+        with self.assertRaises(DecideError):
+            Store(home)
+
+    def test_verify_rejects_missing_final_newline(self):
+        """verify-log rejects a missing final newline"""
+        store = _three_event_store()
+        store.path.write_bytes(store.path.read_bytes().rstrip(b"\n"))
+        self.assertEqual("incomplete line", store.verify()["reason"])
+
+    def test_store_rejects_wrong_owner(self):
+        """store paths with the wrong owner are refused"""
+        from unittest.mock import patch
+        home = temp_home()
+        with patch("decide_store.os.getuid", return_value=os.getuid() + 1):
+            with self.assertRaises(DecideError):
+                Store(home)
+        store = Store(home)
+        with patch("decide_store.os.getuid", return_value=os.getuid() + 1):
+            with self.assertRaises(DecideError):
+                with store.lock():
+                    pass
+
+    def test_verify_waits_for_append_lock(self):
+        """verify-log waits for the append lock"""
+        import threading
+        store = Store(temp_home()); started = threading.Event(); done = threading.Event()
+        def verify():
+            started.set(); Store(store.home).verify(); done.set()
+        with store.lock():
+            thread = threading.Thread(target=verify); thread.start(); started.wait()
+            self.assertFalse(done.wait(0.05))
+        thread.join(2)
+        self.assertTrue(done.is_set())
+
 
 def _three_event_store():
     store = Store(temp_home())
