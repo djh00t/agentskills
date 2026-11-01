@@ -23,6 +23,20 @@ _OPTION_FIELDS = {"label", "text", "changes", "reversible", "rec", "approves_mer
 _PR_FIELDS = {"repo", "number", "head_sha", "base", "merger", "merge_method", "merge_order", "trailers"}
 
 
+def safe_text(value):
+    """Check raw text for invisible, non-printable, or excessive marks."""
+    marks = 0
+    visible = False
+    for char in value:
+        category = unicodedata.category(char)
+        marks = marks + 1 if category in ("Mn", "Me") else 0
+        if marks > 2:
+            return False
+        visible |= category[0] in "LNPS"
+    return (value.isprintable() and not any(c in _INVISIBLE for c in value)
+            and (not value.strip() or visible))
+
+
 def validate_request(obj):
     """Return every schema error found in a request object."""
     errors = []
@@ -42,13 +56,13 @@ def validate_request(obj):
             error(path, "must be a string")
             return False
         checked = unicodedata.normalize("NFKC", value)
-        if not checked.isprintable() or any(c in _INVISIBLE for c in checked):
+        if not safe_text(value):
             error(path, "contains non-printable or invisible characters")
         if strip:
             checked = checked.strip()
         if len(checked) < minimum:
             error(path, "must be at least {} character(s)".format(minimum))
-        if maximum is not None and len(checked) > maximum:
+        if maximum is not None and (len(value) > maximum or len(checked) > maximum):
             error(path, "longer than {} characters".format(maximum))
         return True
 
@@ -134,8 +148,11 @@ def validate_request(obj):
             return
         try:
             parts = urlsplit(value)
-            valid = (value.isascii() and parts.scheme == "https" and bool(parts.hostname)
-                     and parts.username is None and "@" not in parts.netloc
+            host = parts.hostname or ""
+            valid = (value.isascii() and parts.scheme == "https"
+                     and bool(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*", host))
+                     and not re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]+)(?:\.(?:[0-9]+|0x[0-9a-f]+))*", host)
+                     and "%" not in parts.netloc and "@" not in parts.netloc
                      and not any(c in value for c in "\\\"'`"))
             parts.port
         except ValueError:
@@ -202,7 +219,7 @@ def validate_request(obj):
                 error(path, "must be an ISO 8601 string with an offset")
                 continue
             try:
-                parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+                parsed = datetime.fromisoformat(value)
                 if parsed.tzinfo is None:
                     raise ValueError
                 obj_value = parsed
@@ -252,8 +269,8 @@ def validate_request(obj):
             if "base" in pr:
                 base = pr["base"]
                 if (not isinstance(base, str) or not 1 <= len(base) <= 100
-                        or base.startswith("-") or ".." in base or "@{" in base
-                        or base == "@" or base.endswith(("/", "."))
+                        or base.startswith("-") or ".." in base
+                        or base.endswith(".")
                         or not re.fullmatch(r"[A-Za-z0-9._/-]+", base)
                         or base == "HEAD" or base.endswith("_HEAD") or base.startswith("refs/")
                         or any(not part or part.startswith(".") or part.endswith(".lock") for part in base.split("/"))
@@ -271,9 +288,9 @@ def validate_request(obj):
                         if not isinstance(item, str):
                             error("pr.trailers[{}]".format(i), "must be a string")
                         else:
-                            if len(item) > 100:
+                            if len(item) > 100 or len(unicodedata.normalize("NFKC", item)) > 100:
                                 error("pr.trailers[{}]".format(i), "longer than 100 characters")
-                            if (not unicodedata.normalize("NFKC", item).isprintable()
+                            if (not safe_text(item)
                                     or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*: \S[^\r\n]*", item)):
                                 error("pr.trailers[{}]".format(i), "must be a single trailer line")
     return errors
