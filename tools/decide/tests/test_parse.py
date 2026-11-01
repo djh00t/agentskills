@@ -44,6 +44,25 @@ class ParseTextTests(unittest.TestCase):
             "words": "152: B, ok？",
         })
 
+    def test_unicode_question_marks_are_questions_anywhere(self):
+        """any supported Unicode question mark anywhere makes the reply a question"""
+        for mark in ("\u037e", "\u061f", "\u2e2e", "\u203d", "\u2048", "\u055e", "\u1367"):
+            with self.subTest(mark=f"U+{ord(mark):04X}"):
+                self.assertEqual(parse_text(f"152: B, ok{mark}"), {
+                    "result": "question", "id": 152, "choice": None,
+                    "words": f"152: B, ok{mark}",
+                })
+
+    def test_question_mark_anywhere_in_text_is_a_question(self):
+        """question text remains a question after punctuation or invisible text"""
+        for suffix in ("", "!", " thanks", "\n\nthanks", "\u3164", "\u2800", "\u034f", "\ufe0f"):
+            with self.subTest(suffix=repr(suffix)):
+                text = f"152: B, ok?{suffix}"
+                self.assertEqual(parse_text(text), {
+                    "result": "question", "id": 152, "choice": None,
+                    "words": text,
+                })
+
     def test_trailing_zero_width_space_does_not_hide_question(self):
         """a trailing zero-width space does not hide a question"""
         self.assertEqual(parse_text("152: B?\u200b"), {
@@ -63,6 +82,27 @@ class ParseTextTests(unittest.TestCase):
         self.assertEqual(parse_text("152: B\n153: A"), {
             "result": "ambiguous", "id": None, "choice": None,
             "words": "152: B\n153: A",
+        })
+
+    def test_second_hash_id_in_reason_is_ambiguous(self):
+        """a second hash id in a reason is ambiguous"""
+        text = "152: B, see #153"
+        self.assertEqual(parse_text(text), {
+            "result": "ambiguous", "id": None, "choice": None, "words": text,
+        })
+
+    def test_second_space_form_decision_is_ambiguous(self):
+        """a second space-form decision is ambiguous"""
+        text = "152: B and 153 C"
+        self.assertEqual(parse_text(text), {
+            "result": "ambiguous", "id": None, "choice": None, "words": text,
+        })
+
+    def test_second_lowercase_decision_is_ambiguous(self):
+        """a second lowercase decision is ambiguous"""
+        text = "152: b\n153: a"
+        self.assertEqual(parse_text(text), {
+            "result": "ambiguous", "id": None, "choice": None, "words": text,
         })
 
     def test_approve_n_picks_the_recommendation(self):
