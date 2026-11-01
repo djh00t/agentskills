@@ -26,23 +26,35 @@ _PR_FIELDS = {"repo", "number", "head_sha", "base", "merger", "merge_method", "m
 def safe_text(value):
     """Check raw text for invisible, non-printable, or excessive marks."""
     marks = 0
+    hebrew_marks = 0
+    hebrew_base = False
     visible = False
     previous = ""
     for index, char in enumerate(value):
         category = unicodedata.category(char)
         mark = category in ("Mn", "Me")
-        if index == 0 and mark:
+        hebrew_point = "\u0591" <= char <= "\u05c7"
+        if mark and (not previous or previous.isspace()):
             return False
-        marks = marks + 1 if mark and not "\u0591" <= char <= "\u05c7" else 0
-        if marks > 2:
-            return False
+        if hebrew_point:
+            hebrew_marks += 1
+            if not hebrew_base or hebrew_marks > 4:
+                return False
+        elif mark:
+            marks += 1
+            if marks > 2:
+                return False
+        else:
+            marks = 0
+            hebrew_marks = 0
+            hebrew_base = category.startswith("L") and ("\u05d0" <= char <= "\u05ea" or "\ufb1d" <= char <= "\ufb4f")
         emoji_variation = char == "\ufe0f" and previous and unicodedata.category(previous) == "So"
         emoji_joiner = (char == "\u200d" and previous and index + 1 < len(value)
                         and (unicodedata.category(previous) == "So" or previous == "\ufe0f")
                         and unicodedata.category(value[index + 1]) == "So")
         if (char in _INVISIBLE and not emoji_variation) or (not char.isprintable() and not char.isspace() and not emoji_joiner):
             return False
-        if category in ("Cc", "Cs", "Co", "Cn", "Zl", "Zp"):
+        if category in ("Cc", "Zl", "Zp"):
             return False
         visible |= category[0] in "LNPS"
         previous = char
