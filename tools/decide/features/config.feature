@@ -26,3 +26,4 @@ Feature: Private configuration and file masking
   Scenario: unreadable private files and invalid types fail closed
   Scenario: mask collisions and duplicate hits are handled safely
   Scenario: roster names do not cross sibling entries
+  Scenario: wrapped values and config boundaries are checked
