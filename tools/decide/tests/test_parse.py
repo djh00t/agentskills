@@ -30,6 +30,41 @@ class ParseTextTests(unittest.TestCase):
             "words": "152: B, move all of them",
         })
 
+    def test_question_mark_in_reason_takes_precedence_over_option(self):
+        """a question mark in a reason takes precedence over an option"""
+        self.assertEqual(parse_text("152: B, is that ok?"), {
+            "result": "question", "id": 152, "choice": None,
+            "words": "152: B, is that ok?",
+        })
+
+    def test_full_width_question_mark_is_a_question(self):
+        """a full-width question mark is a question"""
+        self.assertEqual(parse_text("152: B, ok？"), {
+            "result": "question", "id": 152, "choice": None,
+            "words": "152: B, ok？",
+        })
+
+    def test_trailing_zero_width_space_does_not_hide_question(self):
+        """a trailing zero-width space does not hide a question"""
+        self.assertEqual(parse_text("152: B?\u200b"), {
+            "result": "question", "id": 152, "choice": None,
+            "words": "152: B?\u200b",
+        })
+
+    def test_second_decision_in_reason_is_ambiguous(self):
+        """a second decision in a reason is ambiguous"""
+        self.assertEqual(parse_text("152: B. Also #153: A"), {
+            "result": "ambiguous", "id": None, "choice": None,
+            "words": "152: B. Also #153: A",
+        })
+
+    def test_second_decision_on_new_line_is_ambiguous(self):
+        """a second decision on a new line is ambiguous"""
+        self.assertEqual(parse_text("152: B\n153: A"), {
+            "result": "ambiguous", "id": None, "choice": None,
+            "words": "152: B\n153: A",
+        })
+
     def test_approve_n_picks_the_recommendation(self):
         """approve N picks the recommendation"""
         self.assertEqual(parse_text("approve 7"), {
