@@ -64,8 +64,6 @@ def _roster(path):
             ids.add(current)
             names[current] = current
             indent = len(match.group(1))
-        elif re.match(r"^\s*-?\s*id\s*:", line, re.IGNORECASE):
-            _fail("roster_path", "contains an invalid id")
         elif current is not None:
             name_match = re.match(r"^(\s+)name:\s*(.*?)\s*$", line)
             if name_match and len(name_match.group(1)) > indent:
