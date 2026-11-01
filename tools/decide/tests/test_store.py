@@ -6,6 +6,9 @@ import multiprocessing
 import os
 from pathlib import Path
 import stat
+import subprocess
+import sys
+from unittest.mock import patch
 import unittest
 
 from decide_common import DecideError
@@ -184,6 +187,72 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(DecideError):
             Store(home)
 
+    def test_first_append_recovers_after_head_failure(self):
+        """first append recovers after head failure"""
+        store = Store(temp_home())
+        original = store._write_head
+        def fail(seq, digest):
+            if seq == 1:
+                raise OSError("interrupted")
+            original(seq, digest)
+        with store.lock():
+            with patch.object(store, "_write_head", side_effect=fail), self.assertRaises(DecideError):
+                store.append("ask", 1, {})
+            store.append("ask", 2, {})
+        self.assertEqual(2, store.verify()["events"])
+        self.assertTrue(store.verify()["ok"])
+
+    def test_surrogate_is_not_canonical_in_process(self):
+        """surrogate is not canonical in process"""
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+        raw = store.path.read_bytes().replace(b'"data":{}', b'"data":{"x":"\\ud800"}')
+        store.path.write_bytes(raw)
+        process = subprocess.run([sys.executable, "decide.py", "--home", str(store.home), "verify-log"], capture_output=True, text=True)
+        self.assertEqual(3, process.returncode)
+        self.assertIn("not canonical", process.stdout)
+        self.assertNotIn("Traceback", process.stderr)
+
+    def test_recovery_refuses_invalid_log_and_wrong_hash(self):
+        """recovery refuses invalid log and wrong hash"""
+        for kind in ("invalid", "hash"):
+            store = _three_event_store()
+            lines = store.path.read_bytes().splitlines()
+            if kind == "invalid":
+                store.path.write_bytes(b"\n".join(lines) + b"\n{\n")
+            else:
+                store.head_path.write_bytes(json.dumps({"seq": 2, "sha256": ZERO_HASH}, sort_keys=True, separators=(",", ":")).encode())
+            before = store.path.read_bytes()
+            with store.lock(), self.assertRaises(DecideError):
+                store.append("ask", 4, {})
+            self.assertEqual(before, store.path.read_bytes())
+
+    def test_append_cleans_stale_head_files_and_maps_errors(self):
+        """append cleans stale head files and maps errors"""
+        store = Store(temp_home())
+        stale = store.home / ".head-stale"
+        stale.write_bytes(b"stale")
+        with store.lock():
+            store.append("ask", 1, {"z": 1, "a": 2})
+            self.assertFalse(stale.exists())
+            self.assertIn(b'"data":{"a":2,"z":1}', store.path.read_bytes())
+            for data in ({"x": "\ud800"}, {"x": []}):
+                if isinstance(data["x"], list):
+                    data["x"].append(data["x"])
+                with self.assertRaises(DecideError) as caught:
+                    store.append("ask", 2, data)
+                self.assertEqual(3, caught.exception.code)
+
+    def test_lock_failure_closes_descriptor(self):
+        """lock failure closes descriptor"""
+        store = Store(temp_home())
+        with patch("decide_store.fcntl.flock", side_effect=OSError("failed")), patch("decide_store.os.close", wraps=os.close) as close:
+            with self.assertRaises(DecideError):
+                with store.lock():
+                    pass
+            close.assert_called_once()
+
     def test_head_recovery_after_interrupted_append(self):
         """head recovery after interrupted append"""
         store = Store(temp_home())
@@ -222,7 +291,7 @@ class StoreTests(unittest.TestCase):
         with patch("decide_store.os.replace", side_effect=replace), patch("decide_store.os.fsync", side_effect=fsync):
             with store.lock():
                 store.append("ask", 1, {})
-        self.assertEqual(["file", "directory", "file", "replace", "directory"], calls)
+        self.assertEqual(["file", "replace", "directory", "file", "directory", "file", "replace", "directory"], calls)
 
     def test_interrupted_head_replace_and_torn_line_recovery(self):
         """interrupted head replace and torn line recovery"""
@@ -232,7 +301,7 @@ class StoreTests(unittest.TestCase):
             store.append("ask", 1, {})
             old_head = store.head_path.read_bytes()
             with patch("decide_store.os.replace", side_effect=OSError("interrupted")):
-                with self.assertRaises(OSError):
+                with self.assertRaises(DecideError):
                     store.append("ask", 2, {})
             self.assertEqual(old_head, store.head_path.read_bytes())
             store.append("ask", 3, {})
@@ -267,6 +336,79 @@ class StoreTests(unittest.TestCase):
                     store.append("ask", 4, {})
                 self.assertEqual(3, caught.exception.code)
 
+    def test_store_boundaries_and_lock_details(self):
+        store = Store(temp_home())
+        with patch("decide_store.os.set_blocking", wraps=os.set_blocking) as blocking:
+            with store.lock():
+                store.append("ask", 1, {})
+            self.assertTrue(all(call.args[1] is True for call in blocking.call_args_list))
+        self.assertTrue(store.head_path.read_bytes().startswith(b'{"seq":'))
+        with patch.object(store, "lock", wraps=store.lock) as lock:
+            store.verify()
+            lock.assert_called_once_with(shared=True)
+        with store.lock():
+            pass
+        with self.assertRaises(RuntimeError):
+            store.append("ask", 2, {})
+        for mode in (0o601,):
+            home = temp_home()
+            (home / ".lock").touch(mode=mode)
+            (home / ".lock").chmod(mode)
+            with self.assertRaises(DecideError):
+                with Store(home).lock():
+                    pass
+            home.chmod(0o701)
+            with self.assertRaises(DecideError):
+                Store(home)
+
+    def test_event_size_exact_boundary(self):
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {"x": ""})
+        size = len(store.path.read_bytes()) - 1
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {"x": "x" * (1048576 - size)})
+        self.assertEqual(1048576, len(store.path.read_bytes()) - 1)
+        self.assertTrue(store.verify()["ok"])
+
+    def test_recovery_uses_canonical_head_and_syncs_existing_file(self):
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+            old_head = store.head_path.read_bytes()
+            with patch("decide_store._sync_dir", wraps=__import__("decide_store")._sync_dir) as sync:
+                store.append("ask", 2, {})
+                self.assertEqual(1, sync.call_count)
+            store.head_path.write_bytes(old_head)
+            store.append("ask", 3, {})
+        self.assertTrue(store.verify()["ok"])
+
+    def test_recovery_head_and_existing_head_are_preserved(self):
+        store = Store(temp_home())
+        with store.lock():
+            store._write_head(0, ZERO_HASH)
+            with patch.object(store, "_write_head", wraps=store._write_head) as initial:
+                store.append("ask", 1, {})
+                self.assertEqual([1], [call.args[0] for call in initial.call_args_list])
+            with patch.object(store, "_write_head", wraps=store._write_head) as write:
+                store.append("ask", 2, {})
+                self.assertEqual([2], [call.args[0] for call in write.call_args_list])
+            old_head = store.head_path.read_bytes()
+            store.append("ask", 3, {})
+            store.head_path.write_bytes(old_head)
+            with patch.object(store, "_write_head", wraps=store._write_head) as write:
+                store.append("ask", 4, {})
+                self.assertEqual(hashlib.sha256(store.path.read_bytes().splitlines()[2]).hexdigest(), write.call_args_list[0].args[1])
+
+    def test_unsorted_json_is_not_canonical(self):
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {"z": 1, "a": 2})
+        raw = store.path.read_bytes().replace(b'"a":2,"z":1', b'"z":1,"a":2')
+        store.path.write_bytes(raw)
+        self.assertEqual("not canonical", store.verify()["reason"])
+
     def test_lock_is_not_reentrant(self):
         """lock is not reentrant"""
         store = Store(temp_home())
@@ -280,6 +422,7 @@ class StoreTests(unittest.TestCase):
         store = Store(temp_home())
         with store.lock():
             store.append("ask", 1, {"text": "café 雪"})
+        self.assertIn("café 雪".encode(), store.path.read_bytes())
         self.assertEqual("café 雪", json.loads(store.path.read_bytes())["data"]["text"])
         self.assertTrue(store.verify()["ok"])
 
