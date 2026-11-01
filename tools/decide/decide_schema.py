@@ -3,13 +3,14 @@
 from datetime import datetime
 import re
 import unicodedata
+from urllib.parse import urlsplit
 
 
 KINDS = ("simple", "complex", "pr_merge")
 PRIORITIES = ("P0", "P1", "P2")
 LABELS = ("A", "B", "C", "D")
 REVERSIBLE = ("yes", "no", "partly")
-UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 STATES = ("open", "ready", "shown", "on_hold", "approved", "answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded")
 CLOSED_STATES = frozenset({"answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded"})
@@ -24,6 +25,11 @@ _OPTION_FIELDS = {"label", "text", "changes", "reversible", "rec", "approves_mer
 _PR_FIELDS = {"repo", "number", "head_sha", "base", "merger", "merge_method", "merge_order", "trailers"}
 
 
+def _text_safety(value):
+    normalized = unicodedata.normalize("NFKC", value)
+    return normalized, not any(unicodedata.category(char) in ("Cc", "Cf") for char in normalized)
+
+
 def validate_request(obj):
     """Return every schema error found in a request object."""
     errors = []
@@ -36,13 +42,17 @@ def validate_request(obj):
 
     for key in obj:
         if key not in _FIELDS:
-            error(key, "unknown field")
+            error("<unknown field>", "unknown field")
 
     def string(value, path, minimum=1, maximum=None, strip=False):
         if not isinstance(value, str):
             error(path, "must be a string")
             return False
-        checked = value.strip() if strip else value
+        checked, safe = _text_safety(value)
+        if not safe:
+            error(path, "contains control or format characters")
+        if strip:
+            checked = checked.strip()
         if len(checked) < minimum:
             error(path, "must be at least {} character(s)".format(minimum))
         if maximum is not None and len(checked) > maximum:
@@ -50,7 +60,7 @@ def validate_request(obj):
         return True
 
     def enum(value, path, choices):
-        if value not in choices or not isinstance(value, str):
+        if not isinstance(value, str) or value not in choices:
             error(path, "must be one of {}".format(", ".join(choices)))
 
     for name, maximum in (("key", 80), ("title", 80), ("question", 300), ("why_owner", 200), ("rec_reason", 150)):
@@ -58,7 +68,7 @@ def validate_request(obj):
             error(name, "is required")
             continue
         value = obj[name]
-        if string(value, name, maximum=maximum, strip=name == "title") and name == "key" and not re.fullmatch(r"[A-Za-z0-9._:-]+", value):
+        if string(value, name, maximum=maximum, strip=name != "key") and name == "key" and not re.fullmatch(r"[A-Za-z0-9._:-]+", value):
             error(name, "contains invalid characters")
 
     if "requester" not in obj:
@@ -93,7 +103,7 @@ def validate_request(obj):
                 continue
             for key in option:
                 if key not in _OPTION_FIELDS:
-                    error(path + "." + key, "unknown field")
+                    error(path + ".<unknown field>", "unknown field")
             for key in ("label", "text", "changes", "reversible", "rec"):
                 if key not in option:
                     error(path + "." + key, "is required")
@@ -103,7 +113,7 @@ def validate_request(obj):
                     error(path + ".label", "must be {}".format(expected or "a valid label"))
             for key, maximum in (("text", 60), ("changes", 200)):
                 if key in option:
-                    string(option[key], path + "." + key, maximum=maximum)
+                    string(option[key], path + "." + key, maximum=maximum, strip=True)
             if "reversible" in option:
                 enum(option["reversible"], path + ".reversible", REVERSIBLE)
             if "rec" in option:
@@ -123,6 +133,22 @@ def validate_request(obj):
         if kind == "pr_merge" and approve_count != 1:
             error("options", "must have exactly one approves_merge option")
 
+    chase = expires = None
+
+    def link(value, path):
+        if not isinstance(value, str):
+            error(path, "must be a string")
+            return
+        try:
+            parts = urlsplit(value)
+            valid = parts.scheme == "https" and bool(parts.netloc)
+        except ValueError:
+            valid = False
+        if not valid or any(c.isspace() or unicodedata.category(c) in ("Cc", "Cf") or c in "<>[]" for c in value):
+            error(path, "must be a valid https URL")
+        if len(value) > 300:
+            error(path, "longer than 300 characters")
+
     for name in ("bounds", "links", "depends_on", "supersedes", "cc", "chase_at", "expires_at"):
         if name not in obj:
             continue
@@ -132,13 +158,11 @@ def validate_request(obj):
                 error(name, "must be an object")
             else:
                 for key, item in value.items():
-                    path = name + "." + key
+                    path = name + "." + key if key in {"time", "milestone", "spend"} else name + ".<unknown field>"
                     if key not in {"time", "milestone", "spend"}:
                         error(path, "unknown field")
-                    elif not isinstance(item, str):
-                        error(path, "must be a string")
-                    elif len(item) > 100:
-                        error(path, "longer than 100 characters")
+                    else:
+                        string(item, path, minimum=0, maximum=100)
         elif name == "links":
             if not isinstance(value, list):
                 error(name, "must be a list")
@@ -147,13 +171,7 @@ def validate_request(obj):
                     error(name, "must contain at most 5 items")
                 for i, item in enumerate(value):
                     path = "links[{}]".format(i)
-                    if not isinstance(item, str):
-                        error(path, "must be a string")
-                    else:
-                        if not item.startswith("https://"):
-                            error(path, "must start with https://")
-                        if len(item) > 300:
-                            error(path, "longer than 300 characters")
+                    link(item, path)
         elif name in ("depends_on", "supersedes"):
             values = value if name == "depends_on" and isinstance(value, list) else [value]
             if name == "depends_on" and not isinstance(value, list):
@@ -165,7 +183,8 @@ def validate_request(obj):
                     error(path, "must be an integer greater than or equal to 1")
                 elif item in seen:
                     error(path, "must be distinct")
-                seen.add(item)
+                if type(item) is int:
+                    seen.add(item)
         elif name == "cc":
             if not isinstance(value, list):
                 error(name, "must be a list")
@@ -179,7 +198,8 @@ def validate_request(obj):
                         error(path, "must not equal requester")
                     elif item in seen:
                         error(path, "must be distinct")
-                    seen.add(item)
+                    if isinstance(item, str):
+                        seen.add(item)
         else:
             path = name
             if not isinstance(value, str):
@@ -196,7 +216,7 @@ def validate_request(obj):
                     expires = obj_value
             except (ValueError, OverflowError):
                 error(path, "must be an ISO 8601 string with an offset")
-    if "chase" in locals() and "expires" in locals() and chase >= expires:
+    if chase is not None and expires is not None and chase >= expires:
         error("chase_at", "must be before expires_at")
 
     for name, required_kind in (("chat_link", "complex"), ("quote", "complex")):
@@ -208,15 +228,9 @@ def validate_request(obj):
         elif name in obj:
             value = obj[name]
             if name == "chat_link":
-                if not isinstance(value, str):
-                    error(name, "must be a string")
-                else:
-                    if not value.startswith("https://"):
-                        error(name, "must start with https://")
-                    if len(value) > 300:
-                        error(name, "longer than 300 characters")
+                link(value, name)
             else:
-                string(value, name, maximum=300)
+                string(value, name, maximum=300, strip=True)
 
     pr = obj.get("pr")
     if kind == "pr_merge" and "pr" not in obj:
@@ -229,20 +243,26 @@ def validate_request(obj):
         else:
             for key in pr:
                 if key not in _PR_FIELDS:
-                    error("pr." + key, "unknown field")
+                    error("pr.<unknown field>", "unknown field")
             for key in ("repo", "number", "head_sha", "base", "merger", "merge_method"):
                 if key not in pr:
                     error("pr." + key, "is required")
-            for key, pattern, message in (("repo", r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", "must be an owner/repository"), ("head_sha", r"[0-9a-f]{40}", "must be a 40-character lowercase hex sha")):
+            for key, pattern, message in (("repo", r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\.{1,2}\Z)[A-Za-z0-9._-]+", "must be an owner/repository"), ("head_sha", r"[0-9a-f]{40}", "must be a 40-character lowercase hex sha")):
                 if key in pr and (not isinstance(pr[key], str) or not re.fullmatch(pattern, pr[key])):
                     error("pr." + key, message)
             for key in ("number", "merge_order"):
                 if key in pr and (type(pr[key]) is not int or pr[key] < 1):
                     error("pr." + key, "must be an integer greater than or equal to 1")
-            if "base" in pr and (not isinstance(pr["base"], str) or not 1 <= len(pr["base"]) <= 100):
-                error("pr.base", "must be a string of 1 to 100 characters")
-            if "merger" in pr and pr["merger"] not in ("david", "agent"):
-                error("pr.merger", "must be david or agent")
+            if "base" in pr:
+                base = pr["base"]
+                if (not isinstance(base, str) or not 1 <= len(base) <= 100
+                        or base.startswith("-") or ".." in base or "@{" in base
+                        or base == "@" or base.endswith(("/", "."))
+                        or any(not part or part.startswith(".") or part.endswith(".lock") for part in base.split("/"))
+                        or any(c.isspace() or unicodedata.category(c) in ("Cc", "Cf") or c in "~^:?*[\\" for c in base)):
+                    error("pr.base", "must be a valid git ref")
+            if "merger" in pr and pr["merger"] not in ("owner", "agent"):
+                error("pr.merger", "must be owner or agent")
             if "merge_method" in pr and pr["merge_method"] not in ("merge", "squash", "rebase"):
                 error("pr.merge_method", "must be merge, squash or rebase")
             if "trailers" in pr:
@@ -252,18 +272,19 @@ def validate_request(obj):
                     for i, item in enumerate(pr["trailers"]):
                         if not isinstance(item, str):
                             error("pr.trailers[{}]".format(i), "must be a string")
-                        elif len(item) > 100:
-                            error("pr.trailers[{}]".format(i), "longer than 100 characters")
+                        else:
+                            if len(item) > 100:
+                                error("pr.trailers[{}]".format(i), "longer than 100 characters")
+                            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*: [^\r\n]+", item):
+                                error("pr.trailers[{}]".format(i), "must be a single trailer line")
     return errors
 
 
 def _safe_text(value, maximum=None):
     if not isinstance(value, str):
         return False
-    normalized = unicodedata.normalize("NFKC", value)
-    return (bool(normalized.strip())
-            and (maximum is None or len(normalized) <= maximum)
-            and not any(unicodedata.category(char) in ("Cc", "Cf") for char in normalized))
+    normalized, safe = _text_safety(value)
+    return bool(normalized.strip()) and (maximum is None or len(normalized) <= maximum) and safe
 
 
 def validate_event(ev):

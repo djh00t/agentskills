@@ -14,3 +14,6 @@ Feature: decide request schema
   Scenario: cc may not include the requester
   Scenario: an integer is not a boolean
   Scenario: every error is reported, not just the first
+  Scenario: unsafe and invalid request values are rejected
+  Scenario: required fields and time boundaries are enforced
+  Scenario: normalized text length and UUID boundaries are enforced

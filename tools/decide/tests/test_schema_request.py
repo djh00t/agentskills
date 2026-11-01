@@ -25,7 +25,7 @@ class RequestSchemaTests(unittest.TestCase):
         """a request with an unknown field is invalid"""
         obj = fixture("simple")
         obj["mystery"] = True
-        self.assertEqual(["mystery: unknown field"], validate_request(obj))
+        self.assertEqual(["<unknown field>: unknown field"], validate_request(obj))
 
     def test_a_title_longer_than_80_characters_is_invalid(self):
         """a title longer than 80 characters is invalid"""
@@ -114,8 +114,8 @@ class RequestSchemaTests(unittest.TestCase):
         obj = fixture("simple")
         obj.update({"bounds": {"other": "x"}, "links": ["http://example.com"], "depends_on": [1, 1], "supersedes": True})
         self.assertEqual([
-            "bounds.other: unknown field",
-            "links[0]: must start with https://",
+            "bounds.<unknown field>: unknown field",
+            "links[0]: must be a valid https URL",
             "depends_on[1]: must be distinct",
             "supersedes: must be an integer greater than or equal to 1",
         ], validate_request(obj))
@@ -132,3 +132,108 @@ class RequestSchemaTests(unittest.TestCase):
         obj["chat_link"] = "https://example.com/decide"
         self.assertEqual(["chat_link: only allowed for complex", "pr: only allowed for pr_merge"], validate_request(obj))
 
+
+    def test_rejects_unsafe_and_invalid_values(self):
+        """unsafe and invalid request values are rejected"""
+        cases = [
+            ("simple", ("key",), "bad key"), ("simple", ("key",), "x" * 81),
+            ("simple", ("title",), " "), ("simple", ("requester",), "bad"),
+            ("simple", ("kind",), "bad"), ("simple", ("options",), []),
+            ("simple", ("options", 0, "reversible"), "bad"),
+            ("simple", ("options", 0, "rec"), 1),
+            ("simple", ("options", 0, "text"), "x" * 61),
+            ("simple", ("options", 0, "changes"), "x" * 201),
+            ("simple", ("bounds",), []), ("simple", ("bounds",), {"time": "x" * 101}),
+            ("simple", ("links",), ["https://example.com"] * 6),
+            ("simple", ("links",), ["https://example.com/" + "x" * 300]),
+            ("simple", ("depends_on",), 1), ("simple", ("depends_on",), [True]),
+            ("simple", ("cc",), ["bad"]),
+            ("simple", ("cc",), ["22222222-2222-4222-8222-222222222222"] * 2),
+            ("complex", ("chat_link",), "https://"),
+            ("complex", ("chat_link",), "https://example.com/" + "x" * 300),
+            ("complex", ("quote",), "x" * 301),
+            ("pr_merge", ("pr", "repo"), "-x/.."),
+            ("pr_merge", ("pr", "number"), True),
+            ("pr_merge", ("pr", "base"), "x" * 101),
+            ("pr_merge", ("pr", "trailers"), ["A: " + "x" * 101]),
+            ("pr_merge", ("pr", "base"), "--upload-pack=x"),
+            ("pr_merge", ("pr", "merger"), "bad"),
+            ("pr_merge", ("pr", "merge_method"), "bad"),
+            ("pr_merge", ("pr", "trailers"), ["A: b\nB: c"]),
+        ]
+        for name, limit in (("question", 300), ("why_owner", 200), ("rec_reason", 150)):
+            cases.append(("simple", (name,), "x" * (limit + 1)))
+        for field in ("title", "question", "why_owner", "rec_reason"):
+            for value in ("a\nb", "a\u202eb", "a\u200bb", " "):
+                cases.append(("simple", (field,), value))
+        for field in ("text", "changes"):
+            cases.append(("simple", ("options", 0, field), "a\u200bb"))
+        cases.extend([("simple", ("bounds",), {"time": "a\nb"}),
+                      ("complex", ("quote",), "a\u202eb")])
+        for value in ("https://", "https://example.com/a b", "https://example.com/a\nb", "https://example.com/]x"):
+            cases.append(("simple", ("links",), [value]))
+        for value in ("main..other", "main@{x", "main branch", "main\nx", "main~x", "main^x", "main:x", "main?x", "main*x", "main[x", "main\\x", "main/", "main.lock"):
+            cases.append(("pr_merge", ("pr", "base"), value))
+        for value in ("a/.", "a/..", "-a/repo", "a/../b"):
+            cases.append(("pr_merge", ("pr", "repo"), value))
+        for name, path, value in cases:
+            with self.subTest(name=name, path=path, value=value):
+                obj = fixture(name)
+                target = obj
+                for part in path[:-1]:
+                    target = target[part]
+                target[path[-1]] = value
+                self.assertTrue(validate_request(obj))
+
+    def test_required_and_unknown_nested_fields_and_equal_times(self):
+        """required fields and time boundaries are enforced"""
+        for container in ("options", "pr"):
+            obj = fixture("pr_merge")
+            target = obj[container][0] if container == "options" else obj[container]
+            target["unknown\nfield"] = True
+            target.pop("text" if container == "options" else "repo")
+            errors = validate_request(obj)
+            self.assertTrue(any("unknown field" in e for e in errors))
+            self.assertTrue(any("is required" in e for e in errors))
+            self.assertTrue(all("unknown\nfield" not in e for e in errors))
+        obj = fixture("simple")
+        obj.update(chase_at="2026-01-05T10:00:00Z", expires_at="2026-01-05T10:00:00Z")
+        self.assertIn("chase_at: must be before expires_at", validate_request(obj))
+
+    def test_normalized_lengths_and_uuid_end_anchor(self):
+        """normalized text length and UUID boundaries are enforced"""
+        from decide_schema import UUID_RE
+        obj = fixture("simple")
+        obj["title"] = "\ufb03" * 27
+        self.assertTrue(validate_request(obj))
+        self.assertIsNone(UUID_RE.match(obj["requester"] + "\n"))
+
+    def test_option_count_boundary_is_independent(self):
+        obj = fixture("simple")
+        obj["options"] = obj["options"][:1]
+        self.assertEqual(["options: must contain 2 to 4 items"], validate_request(obj))
+
+    def test_git_ref_component_rules(self):
+        for base in ("@", "/main", "main//next", ".hidden", "main/.hidden", "main.", "foo.lock/bar"):
+            with self.subTest(base=base):
+                obj = fixture("pr_merge")
+                obj["pr"]["base"] = base
+                self.assertTrue(validate_request(obj))
+
+    def test_owner_can_merge(self):
+        obj = fixture("pr_merge")
+        obj["pr"]["merger"] = "owner"
+        self.assertEqual([], validate_request(obj))
+
+    def test_unknown_fields_are_redacted(self):
+        for container in ("root", "bounds", "options", "pr"):
+            obj = fixture("pr_merge")
+            if container == "bounds":
+                obj["bounds"] = {}
+            target = obj if container == "root" else obj[container]
+            if container == "options":
+                target = target[0]
+            target["sensitive\nfield"] = True
+            errors = validate_request(obj)
+            self.assertTrue(any("unknown field" in error for error in errors))
+            self.assertTrue(all("sensitive" not in error for error in errors))
