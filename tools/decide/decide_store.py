@@ -14,6 +14,7 @@ from decide_common import DecideError, EXIT_CONFLICT, EXIT_ENV, emit, home_dir, 
 
 ZERO_HASH = "0" * 64
 MAX_LINE_BYTES = 1024 * 1024
+HEAD_TEMP_PREFIX = ".head-"
 KEYS = {"seq", "ts", "type", "id", "data", "prev_sha256"}
 
 
@@ -24,7 +25,11 @@ def _secure_open(path, flags):
         if isinstance(exc, FileNotFoundError):
             raise
         raise DecideError(EXIT_ENV, "cannot open store file safely") from exc
-    info = os.fstat(fd)
+    try:
+        info = os.fstat(fd)
+    except OSError as exc:
+        os.close(fd)
+        raise DecideError(EXIT_ENV, "cannot inspect store file") from exc
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
         os.close(fd)
         raise DecideError(EXIT_ENV, "store file must be private and owned by the current user")
@@ -83,7 +88,7 @@ class Store:
             raise DecideError(EXIT_ENV, "cannot write store") from exc
 
     def _append_locked(self, event_type, item_id, data):
-        for path in self.home.glob(".head-*"):
+        for path in self.home.glob(HEAD_TEMP_PREFIX + "*"):
             path.unlink()
         result, lines = self._verify_locked()
         if result["reason"] == "head mismatch" and lines:
@@ -117,14 +122,20 @@ class Store:
             stream.flush()
             os.fsync(stream.fileno())
         if created:
-            _sync_dir(self.home)
-        self._write_head(event["seq"], hashlib.sha256(line).hexdigest())
+            try:
+                _sync_dir(self.home)
+            except OSError as exc:
+                raise DecideError(EXIT_ENV, "event written; directory sync failed; do not retry") from exc
+        try:
+            self._write_head(event["seq"], hashlib.sha256(line).hexdigest())
+        except OSError:
+            pass  # The durable event will repair the head on the next append.
         return event
 
     def _write_head(self, seq, digest):
         head = json.dumps({"seq": seq, "sha256": digest},
                           sort_keys=True, separators=(",", ":")).encode()
-        fd, name = tempfile.mkstemp(prefix=".head-", dir=self.home)
+        fd, name = tempfile.mkstemp(prefix=HEAD_TEMP_PREFIX, dir=self.home)
         try:
             with os.fdopen(fd, "wb") as stream:
                 stream.write(head)
@@ -207,8 +218,10 @@ class _StoreLock:
         self.store._holders.remove(threading.get_ident())
         if not self.shared:
             self.store._owner = None
-        fcntl.flock(self.fd, fcntl.LOCK_UN)
-        os.close(self.fd)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self.fd)
 
 
 def _broken(count, seq, reason):
