@@ -131,6 +131,19 @@ Until it exists, the author and Peer Reviewer apply the rules by hand.
 
 ## 5. Soak and promotion signals
 
+Soak waits are skipped, for the projects named in the colony release-lanes
+delegation only, under colony decision items 104 and 115 (1 Nov 2026). Only
+the waits are skipped: telemetry and the other section 5 checks, automatic
+rollback, classification, catch rules, review and CI all stay. While the
+skip is on, the Q4 author merge is not used, Q2 deploys need the Owner's
+yes, and a pin is known-good when it merged with a head-pinned Peer
+Reviewer APPROVE and green CI and passed acceptance after deploy (item
+107). The skip ends by itself at the first sign-up, App install or request
+from an account that is not the Owner's, a colony bot's or a test fixture,
+or at the first outside request to a deployed app's production ingress,
+whichever comes first. Any agent may end it early; only an Owner-merged
+colony PR may extend it.
+
 The gate that exists today: local gates and CI green, Flux reports Ready and
 its health checks pass within the project's rollout deadline, and a read-only
 smoke check passes. Prod checks are read-only smoke only, because an
