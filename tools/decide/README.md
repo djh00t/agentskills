@@ -20,4 +20,4 @@ Run `make check` from this directory.
 
 ## Request text and collection limits
 
-Text permits ordinary Unicode spaces, emoji presentation sequences, and Hebrew marks. A leading nonspacing or enclosing mark is invalid. Other consecutive nonspacing or enclosing marks are limited to two. The `cc`, `depends_on`, and `pr.trailers` lists each allow at most 20 items.
+Text permits ordinary Unicode spaces and emoji sequences using symbols, variation selectors, and joiners. Keycap sequences and zero-width non-joiners are rejected. Nonspacing or enclosing marks cannot start text or follow whitespace. At most two such marks are allowed per run; Hebrew points require a Hebrew letter as the base and have a separate limit of four per run. The `cc`, `depends_on`, and `pr.trailers` lists each allow at most 20 items.
