@@ -4,6 +4,25 @@ from decide_parse import parse_text
 
 
 class ParseTextTests(unittest.TestCase):
+    def test_reviewed_parser_spellings(self):
+        for text, result, item_id, choice in (
+            ("152 B", "option", 152, "B"),
+            ("152  B", "option", 152, "B"),
+            ("152: b", "option", 152, "B"),
+            ("152: d", "option", 152, "D"),
+            ("152 : B", "option", 152, "B"),
+            ("152: B,reason", "option", 152, "B"),
+            (": B", "ambiguous", None, None),
+            ("# B", "ambiguous", None, None),
+            ("approve #", "ambiguous", None, None),
+            ("approve #7", "option", 7, "rec"),
+            ("approve  7", "option", 7, "rec"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_text(text), {
+                    "result": result, "id": item_id, "choice": choice, "words": text,
+                })
+
     def test_bounds_invisibles_and_answer_contract(self):
         """bounded and safe answer text"""
         for text in ("1" * 4001, "1" * 4301, "1" * 20000, "\ufdfa" * 223):
