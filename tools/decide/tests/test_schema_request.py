@@ -337,7 +337,7 @@ class RequestSchemaTests(unittest.TestCase):
             self.assertEqual([message], validate_request(obj))
         for length in (300, 301):
             obj = fixture("simple")
-            obj["links"] = ["https://a/" + "x" * (length - 10)]
+            obj["links"] = ["https://a.test/" + "x" * (length - 15)]
             self.assertEqual([] if length == 300 else ["links[0]: longer than 300 characters"], validate_request(obj))
         for length in (100, 101):
             obj = fixture("pr_merge")
@@ -379,7 +379,7 @@ class RequestSchemaTests(unittest.TestCase):
                 obj = fixture("simple")
                 obj["links"] = [value]
                 self.assertIn("links[0]: must be a valid https URL", validate_request(obj))
-        for value in ("\u180f", "\ufe00", "\U000e01ef", "a\u00a0b", "a\u2003b", "\u3000x", "\u0301" * 5, "a" + "\u0301" * 79):
+        for value in ("\u180f", "\ufe00", "\U000e01ef", "\u0301" * 5, "a" + "\u0301" * 79):
             with self.subTest(value=value):
                 obj = fixture("simple")
                 obj["title"] = value
@@ -387,7 +387,7 @@ class RequestSchemaTests(unittest.TestCase):
         obj = fixture("simple")
         obj["title"] = "\u03b1\u0314\u0342\u0345" * 80
         self.assertIn("title: longer than 80 characters", validate_request(obj))
-        for value in ("A: \u3164", "A: \u2800", "A: x\u034f", "A: b\u00a0c", "A: b\u2003c", "A: b\u3000c"):
+        for value in ("A: \u3164", "A: \u2800", "A: x\u034f"):
             with self.subTest(value=value):
                 obj = fixture("pr_merge")
                 obj["pr"]["trailers"] = [value]
@@ -398,3 +398,44 @@ class RequestSchemaTests(unittest.TestCase):
         obj = fixture("pr_merge")
         obj["pr"]["base"] = "-x"
         self.assertEqual(["pr.base: must be a valid git ref"], validate_request(obj))
+
+    def test_review_boundaries(self):
+        """review boundaries are enforced"""
+        for host in ("0x", "0x.0x", "0x7f.0x", "1.0x", "localhost", "intranet", "a.1", "example.123", "a.0x", "a" * 64 + ".test"):
+            obj = fixture("simple")
+            obj["links"] = ["https://" + host + "/"]
+            self.assertEqual(["links[0]: must be a valid https URL"], validate_request(obj), host)
+        obj = fixture("simple")
+        obj["links"] = ["https://" + "a" * 63 + ".test/"]
+        self.assertEqual([], validate_request(obj))
+        for path in ("/é", "/a\\b"):
+            obj = fixture("simple")
+            obj["links"] = ["https://example.test" + path]
+            self.assertEqual(["links[0]: must be a valid https URL"], validate_request(obj), path)
+        for char in ("\u180b", "\u180f", "\ufe00", "\ufe0f", "\U000e0100", "\U000e01ef", "\u17b4", "\u17b5", "\U00016fe4", "\U0001d159", "\ufffc"):
+            obj = fixture("simple")
+            obj["title"] = "a" + char
+            self.assertEqual(["title: contains non-printable or invisible characters"], validate_request(obj), repr(char))
+        for value in ("\u0301abc", "a" + "\u0301" * 3, "a" + "\u20dd" * 3, "\u0301\u0301", " \u0301\u0301"):
+            obj = fixture("simple")
+            obj["title"] = value
+            self.assertEqual(["title: contains non-printable or invisible characters"], validate_request(obj), repr(value))
+        for value in ("a\u0301\u0301", "a\u0301\u0301b\u0301\u0301", "a\u00a0b", "a\u3000b", "a👩\u200d💻", "a❤\ufe0f", "a❤\ufe0f\u200d🔥", "aשָּׁ"):
+            obj = fixture("simple")
+            obj["title"] = value
+            self.assertEqual([], validate_request(obj), repr(value))
+        for value in ("\u0301\u0301", "\U00016fe4", "\U0001d159", "\ufffc"):
+            obj = fixture("pr_merge")
+            obj["pr"]["trailers"] = ["A: " + value]
+            self.assertEqual(["pr.trailers[0]: must be a single trailer line"], validate_request(obj), repr(value))
+        obj = fixture("pr_merge")
+        obj["pr"]["trailers"] = ["A: " + "e\u0301" * 49]
+        self.assertEqual(["pr.trailers[0]: longer than 100 characters"], validate_request(obj))
+        obj = fixture("simple")
+        obj["options"] += [dict(obj["options"][1], label=label) for label in ("C", "D", "E")]
+        self.assertEqual(["options: must contain 2 to 4 items", "options[4].label: must be a valid label"], validate_request(obj))
+        for field in ("cc", "depends_on", "trailers"):
+            obj = fixture("pr_merge")
+            values = (["00000000-0000-0000-0000-%012d" % i for i in range(1, 22)] if field == "cc" else list(range(1, 22)) if field == "depends_on" else ["A: x"] * 21)
+            (obj["pr"] if field == "trailers" else obj)[field] = values
+            self.assertEqual([("pr." if field == "trailers" else "") + field + ": must contain at most 20 items"], validate_request(obj))
