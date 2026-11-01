@@ -1,13 +1,13 @@
 import json
 import re
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 import tempfile
 import shutil
 import unittest
 from unittest.mock import patch
 
-from decide_common import EXIT_ENV
+from decide_common import DecideError, EXIT_ENV
 from decide_config import Config, _secure_file, load_config
 from decide_lint import mask_obj, mask_text, scan_private
 from tests.helpers import FIXTURES, run
@@ -34,6 +34,72 @@ class ConfigFeatureTests(unittest.TestCase):
         (directory / "roster.yaml").chmod(0o600)
         self.addCleanup(shutil.rmtree, directory, ignore_errors=True)
         return directory / "config.json"
+
+    def test_config_is_immutable(self):
+        cfg = load_config(self.config)
+        with self.assertRaises(FrozenInstanceError) as caught:
+            cfg.page_title = "changed"
+        self.assertEqual(str(caught.exception), "cannot assign to field 'page_title'")
+
+    def test_string_length_boundaries(self):
+        for length in (0, 1, 79, 80, 81):
+            with self.subTest(field="page_title", length=length):
+                path = self.write_config(lambda d: d.update(page_title="x" * length))
+                if 1 <= length <= 80:
+                    self.assertEqual(load_config(path).page_title, "x" * length)
+                else:
+                    with self.assertRaises(DecideError) as caught:
+                        load_config(path)
+                    self.assertEqual(str(caught.exception), "config: page_title is invalid")
+        prefix = "{as_of} {waiting}"
+        for length in (399, 400, 401):
+            with self.subTest(field="page_summary", length=length):
+                summary = prefix + "x" * (length - len(prefix))
+                path = self.write_config(lambda d: d.update(page_summary=summary))
+                if length <= 400:
+                    self.assertEqual(load_config(path).page_summary, summary)
+                else:
+                    with self.assertRaises(DecideError) as caught:
+                        load_config(path)
+                    self.assertEqual(str(caught.exception), "config: page_summary is invalid")
+
+    def test_check_times_count_boundaries(self):
+        for count in (0, 1, 5, 6, 7):
+            with self.subTest(count=count):
+                times = [f"{hour:02}:00" for hour in range(count)]
+                path = self.write_config(lambda d: d.update(check_times=times))
+                if 1 <= count <= 6:
+                    self.assertEqual(load_config(path).check_times, tuple(times))
+                else:
+                    with self.assertRaises(DecideError) as caught:
+                        load_config(path)
+                    self.assertEqual(str(caught.exception), "config: check_times is invalid")
+
+    def test_roster_parent_symlink_boundaries(self):
+        path = self.write_config()
+        alias = path.parent.parent / (path.parent.name + "-alias")
+        alias.symlink_to(path.parent, target_is_directory=True)
+        self.addCleanup(alias.unlink)
+        self.assertEqual(load_config(alias / path.name).roster_ids, load_config(path).roster_ids)
+
+        final_link = path.parent / "roster-link.yaml"
+        final_link.symlink_to(path.parent / "roster.yaml")
+        data = json.loads(path.read_text())
+        data["roster_path"] = final_link.name
+        path.write_text(json.dumps(data))
+        with self.assertRaises(DecideError) as caught:
+            load_config(path)
+        self.assertEqual(str(caught.exception), "config: roster_path is invalid")
+
+        (path.parent / "actual").mkdir()
+        shutil.copy(path.parent / "roster.yaml", path.parent / "actual" / "roster.yaml")
+        (path.parent / "link").symlink_to(path.parent / "actual", target_is_directory=True)
+        data = json.loads(path.read_text())
+        data["roster_path"] = "link/roster.yaml"
+        path.write_text(json.dumps(data))
+        with self.assertRaises(DecideError) as caught:
+            load_config(path)
+        self.assertEqual(str(caught.exception), "config: roster_path is invalid")
 
     def test_sample_config_loads(self):
         """the sample config loads"""
