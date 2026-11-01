@@ -1,4 +1,4 @@
-Feature: Parse an owner's answer text
+Feature: Parse answer text
 
   Scenario: a widget tap is an option
     Given the reply text is "152: B, Keep the old layout"
@@ -15,6 +15,38 @@ Feature: Parse an owner's answer text
   Scenario: a token with a reason is an option
     Given the reply text is "152: B, move all of them"
     Then it parses as option 152 B
+
+  Scenario: a semicolon reason separator is an option
+    Given the reply text is "152: B; reason"
+    Then it parses as option 152 B
+
+  Scenario: a period reason separator is an option
+    Given the reply text is "152: B. reason"
+    Then it parses as option 152 B
+
+  Scenario: a colon reason separator is an option
+    Given the reply text is "152: B: reason"
+    Then it parses as option 152 B
+
+  Scenario: a hyphen reason separator is an option
+    Given the reply text is "152: B - reason"
+    Then it parses as option 152 B
+
+  Scenario: a hash prefixed option is an option
+    Given the reply text is "#152: B"
+    Then it parses as option 152 B
+
+  Scenario: an id without a separator is ambiguous
+    Given the reply text is "152B"
+    Then it parses as ambiguous
+
+  Scenario: stripped question text keeps its id
+    Given the reply text is "  152: B?"
+    Then it parses as question 152
+
+  Scenario: normalized question id keeps its id
+    Given the reply text is "\uff03152?"
+    Then it parses as question 152
 
   Scenario: a full-width option is normalized
     Given the reply text is "152：Ｂ"
