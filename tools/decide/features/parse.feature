@@ -16,6 +16,22 @@ Feature: Parse an owner's answer text
     Given the reply text is "152: B, move all of them"
     Then it parses as option 152 B
 
+  Scenario: a full-width option is normalized
+    Given the reply text is "152：Ｂ"
+    Then it parses as option 152 B
+
+  Scenario: an invisible character is removed from an option
+    Given the reply text is "152: B\u200b"
+    Then it parses as option 152 B
+
+  Scenario: a question id is found after normalization
+    Given the reply text is "\u200b152: B?"
+    Then it parses as question 152
+
+  Scenario: a question takes precedence over multiple decisions
+    Given the reply text is "152: B? 153: A"
+    Then it parses as question 152
+
   Scenario: a question mark in a reason takes precedence over an option
     Given the reply text is "152: B, is that ok?"
     Then it parses as question 152
@@ -27,7 +43,7 @@ Feature: Parse an owner's answer text
   Scenario: any supported Unicode question mark anywhere makes the reply a question
     Given the reply text is "152: B, ok<mark>" for each listed mark
     Then it parses as question 152
-    Examples: U+037E, U+061F, U+2E2E, U+203D, U+2048, U+055E, U+1367
+    Examples: U+037E, U+061F, U+2E2E, U+203D, U+2E18, U+1F679, U+1F67A, U+1F67B, U+2048, U+055E, U+1367
 
   Scenario: question text remains a question after punctuation or invisible text
     Given the reply text is "152: B, ok?<tail>" for each listed tail
