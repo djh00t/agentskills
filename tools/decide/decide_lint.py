@@ -45,8 +45,32 @@ def normalize(text):
     return text
 
 
+def _joined_positions(text):
+    parts = []
+    positions = []
+    start = 0
+    after_break = False
+    for match in re.finditer(r"\r\n|[\r\n\x85\u2028\u2029]", text):
+        end = match.start()
+        if after_break:
+            start = end - len(text[start:end].lstrip(" \t"))
+        end = start + len(text[start:end].rstrip(" \t"))
+        if end > start and text[end - 1] == "\\":
+            end -= 1
+            end = start + len(text[start:end].rstrip(" \t"))
+        parts.append(text[start:end])
+        positions.extend(range(start, end))
+        start = match.end()
+        after_break = True
+    if after_break:
+        start = len(text) - len(text[start:].lstrip(" \t"))
+    parts.append(text[start:])
+    positions.extend(range(start, len(text)))
+    return "".join(parts), positions
+
+
 def join_wraps(text):
-    return re.sub(r"[ \t]*\\?(?:\r\n|[\r\n\x85\u2028\u2029])[ \t]*", "", text)
+    return _joined_positions(text)[0]
 
 
 def scan_text(text):
@@ -68,20 +92,40 @@ def scan_private(text, cfg):
 
 
 def mask_text(text, cfg):
-    text = join_wraps(normalize(text))
+    text = normalize(text)
     hits = []
-    for name, pattern, replacement in cfg.masks:
-        if pattern.search(text):
-            text = pattern.sub(lambda match: "[masked:{}]".format(name)
-                               if match.group() in match.expand(replacement)
-                               else match.expand(replacement), text)
-            if name not in hits:
+    rules = [(name, pattern, replacement) for name, pattern, replacement in cfg.masks]
+    rules += [(name, pattern, None) for name, pattern in GENERIC_PATTERNS + list(cfg.private)]
+    for name, pattern, replacement in rules:
+        def substitute(value, positions=None, offset=0):
+            nonlocal text
+            matches = list(pattern.finditer(value))
+            for match in reversed(matches):
+                result = match.expand(replacement) if replacement is not None else "[masked:{}]".format(name)
+                if replacement is not None and match.group() in result:
+                    result = "[masked:{}]".format(name)
+                start, end = match.span()
+                if positions is not None:
+                    start, end = positions[start], positions[end - 1] + 1
+                start += offset
+                end += offset
+                text = text[:start] + result + text[end:]
+            if matches and name not in hits:
                 hits.append(name)
-    for name, pattern in GENERIC_PATTERNS + list(cfg.private):
-        if pattern.search(text):
-            text = pattern.sub("[masked:{}]".format(name), text)
-            if name not in hits:
-                hits.append(name)
+
+        substitute(text)
+        lines = text.splitlines(keepends=True)
+        offsets = []
+        offset = 0
+        for line in lines:
+            offsets.append(offset)
+            offset += len(line)
+        for index in range(len(lines) - 2, -1, -1):
+            value, positions = _joined_positions(lines[index] + lines[index + 1])
+            substitute(value, positions, offsets[index])
+            lines = text.splitlines(keepends=True)
+        value, positions = _joined_positions(text)
+        substitute(value, positions)
     return text, hits
 
 
