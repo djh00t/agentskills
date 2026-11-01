@@ -12,6 +12,8 @@ LABELS = ("A", "B", "C", "D")
 REVERSIBLE = ("yes", "no", "partly")
 UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 
+_INVISIBLE = {"\u034f", "\u115f", "\u1160", "\u17b4", "\u17b5", "\u2800", "\u3164", "\uffa0"} | set(map(chr, range(0x180b, 0x1810))) | set(map(chr, range(0xfe00, 0xfe10))) | set(map(chr, range(0xe0100, 0xe01f0)))
+
 _FIELDS = {
     "key", "requester", "kind", "title", "question", "why_owner", "options",
     "rec_reason", "bounds", "links", "pr", "priority", "depends_on",
@@ -40,8 +42,8 @@ def validate_request(obj):
             error(path, "must be a string")
             return False
         checked = unicodedata.normalize("NFKC", value)
-        if any(unicodedata.category(c) in ("Cc", "Cf") for c in checked):
-            error(path, "contains control or format characters")
+        if not checked.isprintable() or any(c in _INVISIBLE for c in checked):
+            error(path, "contains non-printable or invisible characters")
         if strip:
             checked = checked.strip()
         if len(checked) < minimum:
@@ -132,10 +134,13 @@ def validate_request(obj):
             return
         try:
             parts = urlsplit(value)
-            valid = parts.scheme == "https" and bool(parts.netloc)
+            valid = (value.isascii() and parts.scheme == "https" and bool(parts.hostname)
+                     and parts.username is None and "@" not in parts.netloc
+                     and not any(c in value for c in "\\\"'`"))
+            parts.port
         except ValueError:
             valid = False
-        if not valid or any(c.isspace() or unicodedata.category(c) in ("Cc", "Cf") or c in "<>[]" for c in value):
+        if not valid or not value.isprintable() or any(c.isspace() or c in "<>[]" for c in value):
             error(path, "must be a valid https URL")
         if len(value) > 300:
             error(path, "longer than 300 characters")
@@ -249,8 +254,10 @@ def validate_request(obj):
                 if (not isinstance(base, str) or not 1 <= len(base) <= 100
                         or base.startswith("-") or ".." in base or "@{" in base
                         or base == "@" or base.endswith(("/", "."))
+                        or not re.fullmatch(r"[A-Za-z0-9._/-]+", base)
+                        or base == "HEAD" or base.endswith("_HEAD") or base.startswith("refs/")
                         or any(not part or part.startswith(".") or part.endswith(".lock") for part in base.split("/"))
-                        or any(c.isspace() or unicodedata.category(c) in ("Cc", "Cf") or c in "~^:?*[\\" for c in base)):
+                        ):
                     error("pr.base", "must be a valid git ref")
             if "merger" in pr and pr["merger"] not in ("owner", "agent"):
                 error("pr.merger", "must be owner or agent")
@@ -266,6 +273,7 @@ def validate_request(obj):
                         else:
                             if len(item) > 100:
                                 error("pr.trailers[{}]".format(i), "longer than 100 characters")
-                            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*: [^\r\n]+", item):
+                            if (not unicodedata.normalize("NFKC", item).isprintable()
+                                    or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*: \S[^\r\n]*", item)):
                                 error("pr.trailers[{}]".format(i), "must be a single trailer line")
     return errors
