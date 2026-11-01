@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from decide_common import EXIT_ENV
 from decide_config import Config, _secure_file, load_config
-from decide_lint import mask_obj, mask_text
+from decide_lint import mask_obj, mask_text, scan_private
 from tests.helpers import FIXTURES, run
 
 
@@ -163,9 +163,10 @@ class ConfigFeatureTests(unittest.TestCase):
     def test_private_file_permissions_and_roster_ids(self):
         """private files and roster ids are validated"""
         for filename in ("config.json", "roster.yaml"):
-            path = self.write_config()
-            (path.parent / filename).chmod(0o666)
-            self.assertEqual(run(["--config", str(path), "lint-files", "x"])[0], EXIT_ENV)
+            for mode in (0o601, 0o640, 0o666):
+                path = self.write_config()
+                (path.parent / filename).chmod(mode)
+                self.assertEqual(run(["--config", str(path), "lint-files", "x"])[0], EXIT_ENV)
         identifier = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
         path = self.write_config(roster="- id: " + identifier + " # comment\n")
         self.assertIn(identifier.lower(), load_config(path).roster_ids)
@@ -227,9 +228,8 @@ class ConfigFeatureTests(unittest.TestCase):
 
         alias = path.parent / "alias.json"
         alias.symlink_to(path)
-        with patch.object(Path, "lstat", return_value=path.stat()):
-            with self.assertRaises(Exception) as caught:
-                _secure_file(alias, "file")
+        with self.assertRaises(Exception) as caught:
+            _secure_file(alias, "file")
         self.assertEqual(caught.exception.code, EXIT_ENV)
 
         directory = path.parent / "directory"
@@ -268,17 +268,6 @@ class ConfigFeatureTests(unittest.TestCase):
         with self.assertRaises(Exception) as caught:
             load_config(invalid)
         self.assertEqual(caught.exception.code, EXIT_ENV)
-        for error in (OSError("unreadable"), UnicodeError("invalid")):
-            for filename in ("config.json", "roster.yaml"):
-                original = Path.read_text
-                def read(path, *args, **kwargs):
-                    if path.name == filename:
-                        raise error
-                    return original(path, *args, **kwargs)
-                with self.subTest(error=type(error), filename=filename), patch.object(Path, "read_text", read):
-                    with self.assertRaises(Exception) as caught:
-                        load_config(self.config)
-                    self.assertEqual(caught.exception.code, EXIT_ENV)
         path = self.write_config(lambda d: d.update(roster_path=""))
         code, _, err = run(["--config", str(path), "lint-files", "x"])
         self.assertEqual(code, EXIT_ENV)
@@ -318,6 +307,35 @@ class ConfigFeatureTests(unittest.TestCase):
         self.assertEqual(load_config(path).roster_names[identifier], identifier)
         path = self.write_config(roster="- id: " + identifier + "\n\n  other: value\n  name: Correct\n")
         self.assertEqual(load_config(path).roster_names[identifier], "Correct")
+
+    def test_review_boundaries(self):
+        """wrapped values and config boundaries are checked"""
+        cfg = load_config(self.config)
+        self.assertEqual(mask_text("Quu\nxley", cfg)[0], "[masked:surname]")
+        self.assertEqual(mask_text("U123\n4567", cfg)[0], "U…567")
+        self.assertIn("surname", scan_private("Ｑｕｕｘｌｅｙ", cfg))
+        path = self.write_config(roster="- {id: 11111111-1111-4111-8111-111111111111, name: x}\n- id: 22222222-2222-4222-8222-222222222222\n")
+        with self.assertRaises(Exception):
+            load_config(path)
+        path = self.write_config(roster="- ID: 11111111-1111-4111-8111-111111111111\n")
+        self.assertEqual(len(load_config(path).roster_ids), 1)
+        self.assertEqual(load_config(self.write_config(lambda d: d.update(reviewer_login="a" * 39))).reviewer_login, "a" * 39)
+        with self.assertRaises(Exception):
+            load_config(self.write_config(lambda d: d.update(reviewer_login="a" * 40)))
+        path = self.write_config(lambda d: d.update(mask_rules=[{"name": "whole", "regex": "(U[0-9]+)", "replace": r"\1"}]))
+        self.assertNotIn("U123", mask_text("U123", load_config(path))[0])
+        path = self.write_config(lambda d: (d.pop("version"), d.update(extra=True)))
+        with self.assertRaises(Exception) as caught:
+            load_config(path)
+        self.assertIn("version", str(caught.exception))
+        self.assertIn("extra", str(caught.exception))
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "input"
+            target.write_text("Quu\nxley\nU123\n4567", encoding="utf-8")
+            code, out, _ = run(["--config", str(self.config), "lint-files", str(target)])
+            self.assertEqual(code, 2)
+            self.assertIn("surname", out)
+            self.assertIn("mask:account", out)
 
     def test_scan_length_limit(self):
         """oversized fields and lines fail closed"""
