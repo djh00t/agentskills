@@ -122,7 +122,10 @@ def mask_text(text, cfg):
             offset += len(line)
         for index in range(len(lines) - 2, -1, -1):
             value, positions = _joined_positions(lines[index] + lines[index + 1])
+            before = text
             substitute(value, positions, offsets[index])
+            if text != before:
+                lines = text.splitlines(keepends=True)
         value, positions = _joined_positions(text)
         substitute(value, positions)
     return text, hits
