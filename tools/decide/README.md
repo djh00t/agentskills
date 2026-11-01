@@ -8,9 +8,6 @@ A missing or incomplete head is reported as a broken log; restore the log and he
 
 - `0`: success
 - `2`: validation error or command usage error
-- `3`: conflict or stale state
-- `4`: item not found
-- `5`: configuration or environment error
 
 ## Global options
 
