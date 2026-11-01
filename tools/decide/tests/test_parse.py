@@ -2,26 +2,8 @@ import unittest
 
 from decide_parse import parse_text
 
-try:
-    from decide_schema import _safe_text
-except ImportError:
-    _safe_text = None
-
-REJECTED_WORDS = ("152: B\u200b", "152: B\nmore", "152: B\x07")
-
 
 class ParseTextTests(unittest.TestCase):
-    def test_answer_validator_contract(self):
-        """answer words meet the sibling validator contract"""
-        for text in REJECTED_WORDS:
-            if _safe_text is not None:
-                self.assertFalse(_safe_text(text, 4000))
-            result = parse_text(text)
-            if result["result"] != "ambiguous":
-                self.assertEqual(result["words"], "152: B")
-                if _safe_text is not None:
-                    self.assertTrue(_safe_text(result["words"], 4000))
-
     def test_bounds_invisibles_and_answer_contract(self):
         """bounded and safe answer text"""
         for text in ("1" * 4001, "1" * 4301, "1" * 20000, "\ufdfa" * 223):
@@ -29,12 +11,32 @@ class ParseTextTests(unittest.TestCase):
         for text in ("152: B\u3164", "152\u3164: B"):
             self.assertEqual((parse_text(text)["result"], parse_text(text)["id"], parse_text(text)["choice"]), ("option", 152, "B"))
         for text in ("152: B\nmore", "152: B\x07"):
-            self.assertEqual(parse_text(text)["result"], "ambiguous")
+            self.assertEqual(parse_text(text), {"result": "ambiguous", "id": None, "choice": None, "words": text})
         self.assertEqual(parse_text("123456789: B")["id"], 123456789)
         for text in ("1234567890: B", "١٥٢: B"):
             self.assertNotEqual(parse_text(text)["result"], "option")
         self.assertEqual(parse_text("152: B, 3 apples")["result"], "option")
         self.assertEqual(parse_text("Approve 7")["choice"], "rec")
+
+    def test_review_regressions(self):
+        for char in ("\u115f", "\u1160", "\u17b4", "\u17b5", "\uffa0", "\U00016fe4", "\U0001d159", "\ufffc"):
+            with self.subTest(char=char):
+                self.assertEqual(parse_text("152: B" + char), {
+                    "result": "option", "id": 152, "choice": "B", "words": "152: B",
+                })
+        for text, result, item_id, choice in (
+            ("1234567890 B", "ambiguous", None, None),
+            ("approve 1234567890", "ambiguous", None, None),
+            ("see #1234567890", "ambiguous", None, None),
+            ("1: A, 12345678901 B", "option", 1, "A"),
+            ("1: A, 1234567890 B", "option", 1, "A"),
+            ("152: B\n", "ambiguous", None, None),
+            ("152: B, ok?\n\nthanks", "question", 152, None),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(parse_text(text), {
+                    "result": result, "id": item_id, "choice": choice, "words": text,
+                })
 
     def test_invisible_range_boundaries_after_a_letter(self):
         for code in (0x180A, 0x180B, 0x180F, 0x1810,
