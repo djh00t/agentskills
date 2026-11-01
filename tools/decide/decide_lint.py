@@ -25,10 +25,11 @@ GENERIC_PATTERNS = [
 
 
 def scan_text(text):
-    text = unicodedata.normalize("NFKC", text)
+    text = unicodedata.normalize("NFKD", text)
     text = "".join(char for char in text
-                   if unicodedata.category(char) not in {"Cf", "Cn", "Mn", "Me"}
-                   and char not in "\u115f\u1160\u3164\uffa0\u2800")
+                   if unicodedata.category(char) not in {"Cf", "Cn", "Mn", "Me", "Cs"}
+                   and (unicodedata.category(char) != "Cc" or char in "\t\n\r\x85")
+                   and char not in "\u115f\u1160\u2800")
     text = unicodedata.normalize("NFKC", text)
     variants = (text, re.sub(r"[ \t]*\\?(?:\r\n|[\r\n\x85\u2028\u2029])[ \t]*", "", text))
     return [
