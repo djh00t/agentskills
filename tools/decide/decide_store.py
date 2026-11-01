@@ -128,8 +128,8 @@ class Store:
                 raise DecideError(EXIT_ENV, "event written; directory sync failed; do not retry") from exc
         try:
             self._write_head(event["seq"], hashlib.sha256(line).hexdigest())
-        except OSError:
-            pass  # The durable event will repair the head on the next append.
+        except OSError as exc:
+            raise DecideError(EXIT_ENV, "event written; head update failed; do not retry") from exc
         return event
 
     def _write_head(self, seq, digest):
