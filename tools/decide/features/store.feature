@@ -29,3 +29,12 @@ Feature: decide event store
   Scenario: shared lock does not allow append
   Scenario: fifo is refused
   Scenario: interrupted head replace and torn line recovery
+
+  Scenario: first append recovers after head failure
+  Scenario: surrogate is not canonical in subprocess
+  Scenario: recovery refuses invalid log and wrong hash
+  Scenario: append cleans stale head files and maps errors
+  Scenario: lock failure closes descriptor
+  Scenario: configure failure closes descriptor
+  Scenario: event directory sync failure warns against retry
+  Scenario: write failure reports error

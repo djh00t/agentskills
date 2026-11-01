@@ -14,6 +14,7 @@ from decide_common import DecideError, EXIT_CONFLICT, EXIT_ENV, emit, home_dir, 
 
 ZERO_HASH = "0" * 64
 MAX_LINE_BYTES = 1024 * 1024
+HEAD_TEMP_PREFIX = ".head-"
 KEYS = {"seq", "ts", "type", "id", "data", "prev_sha256"}
 
 
@@ -24,11 +25,19 @@ def _secure_open(path, flags):
         if isinstance(exc, FileNotFoundError):
             raise
         raise DecideError(EXIT_ENV, "cannot open store file safely") from exc
-    info = os.fstat(fd)
+    try:
+        info = os.fstat(fd)
+    except OSError as exc:
+        os.close(fd)
+        raise DecideError(EXIT_ENV, "cannot inspect store file") from exc
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
         os.close(fd)
         raise DecideError(EXIT_ENV, "store file must be private and owned by the current user")
-    os.set_blocking(fd, True)
+    try:
+        os.set_blocking(fd, True)
+    except OSError as exc:
+        os.close(fd)
+        raise DecideError(EXIT_ENV, "cannot configure store file") from exc
     return fd
 
 
@@ -71,6 +80,16 @@ class Store:
     def append(self, event_type, item_id, data):
         if self._owner != threading.get_ident():
             raise RuntimeError("append requires the store lock")
+        try:
+            return self._append_locked(event_type, item_id, data)
+        except (UnicodeError, RecursionError, ValueError, TypeError) as exc:
+            raise DecideError(EXIT_CONFLICT, "invalid event") from exc
+        except OSError as exc:
+            raise DecideError(EXIT_ENV, "cannot write store") from exc
+
+    def _append_locked(self, event_type, item_id, data):
+        for path in self.home.glob(HEAD_TEMP_PREFIX + "*"):
+            path.unlink()
         result, lines = self._verify_locked()
         if result["reason"] == "head mismatch" and lines:
             previous_hash = hashlib.sha256(lines[-2]).hexdigest() if len(lines) > 1 else ZERO_HASH
@@ -88,6 +107,8 @@ class Store:
         line = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         if len(line) > MAX_LINE_BYTES:
             raise DecideError(EXIT_CONFLICT, "event exceeds size limit")
+        if not lines and self._read(self.head_path) is None:
+            self._write_head(0, ZERO_HASH)
         try:
             fd = _secure_open(self.path, os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_WRONLY)
             created = True
@@ -101,14 +122,20 @@ class Store:
             stream.flush()
             os.fsync(stream.fileno())
         if created:
-            _sync_dir(self.home)
-        self._write_head(event["seq"], hashlib.sha256(line).hexdigest())
+            try:
+                _sync_dir(self.home)
+            except OSError as exc:
+                raise DecideError(EXIT_ENV, "event written; directory sync failed; do not retry") from exc
+        try:
+            self._write_head(event["seq"], hashlib.sha256(line).hexdigest())
+        except OSError as exc:
+            raise DecideError(EXIT_ENV, "event written; head update failed; do not retry") from exc
         return event
 
     def _write_head(self, seq, digest):
         head = json.dumps({"seq": seq, "sha256": digest},
                           sort_keys=True, separators=(",", ":")).encode()
-        fd, name = tempfile.mkstemp(prefix=".head-", dir=self.home)
+        fd, name = tempfile.mkstemp(prefix=HEAD_TEMP_PREFIX, dir=self.home)
         try:
             with os.fdopen(fd, "wb") as stream:
                 stream.write(head)
@@ -151,7 +178,10 @@ class Store:
                 return _broken(len(lines), seq, "prev_sha256 mismatch"), lines
             if seq != number:
                 return _broken(len(lines), seq, "seq gap"), lines
-            canonical = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            try:
+                canonical = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            except (UnicodeError, RecursionError):
+                return _broken(len(lines), seq, "not canonical"), lines
             if raw != canonical:
                 return _broken(len(lines), seq, "not canonical"), lines
             previous = hashlib.sha256(raw).hexdigest()
@@ -174,7 +204,11 @@ class _StoreLock:
         if threading.get_ident() in self.store._holders:
             raise RuntimeError("store lock is not reentrant")
         self.fd = _secure_open(self.store.lock_path, os.O_CREAT | os.O_RDWR)
-        fcntl.flock(self.fd, fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX)
+        except OSError as exc:
+            os.close(self.fd)
+            raise DecideError(EXIT_ENV, "cannot lock store") from exc
         self.store._holders.add(threading.get_ident())
         if not self.shared:
             self.store._owner = threading.get_ident()
@@ -184,8 +218,10 @@ class _StoreLock:
         self.store._holders.remove(threading.get_ident())
         if not self.shared:
             self.store._owner = None
-        fcntl.flock(self.fd, fcntl.LOCK_UN)
-        os.close(self.fd)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+        finally:
+            os.close(self.fd)
 
 
 def _broken(count, seq, reason):

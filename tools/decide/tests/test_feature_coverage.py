@@ -42,3 +42,14 @@ async def test_three():
     """duplicate"""
 '''
         self.assertEqual(["missing", "duplicate"], uncovered_scenarios([feature], [tests]))
+
+    def test_guard_ignores_non_test_functions_and_extra_tests(self):
+        feature = "Scenario: covered\nScenario: missing\n"
+        tests = '''def helper():
+    """missing"""
+def test_covered():
+    """covered"""
+def test_extra():
+    """extra"""
+'''
+        self.assertEqual(["missing"], uncovered_scenarios([feature], [tests]))
