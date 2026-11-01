@@ -196,22 +196,23 @@ class StoreTests(unittest.TestCase):
                 raise OSError("interrupted")
             original(seq, digest)
         with store.lock():
-            with patch.object(store, "_write_head", side_effect=fail), self.assertRaises(DecideError):
-                store.append("ask", 1, {})
+            with patch.object(store, "_write_head", side_effect=fail):
+                event = store.append("ask", 1, {})
+            self.assertEqual(1, event["seq"])
             store.append("ask", 2, {})
         self.assertEqual(2, store.verify()["events"])
         self.assertTrue(store.verify()["ok"])
 
-    def test_surrogate_is_not_canonical_in_process(self):
-        """surrogate is not canonical in process"""
+    def test_surrogate_is_not_canonical_in_subprocess(self):
+        """surrogate is not canonical in subprocess"""
         store = Store(temp_home())
         with store.lock():
             store.append("ask", 1, {})
         raw = store.path.read_bytes().replace(b'"data":{}', b'"data":{"x":"\\ud800"}')
         store.path.write_bytes(raw)
-        process = subprocess.run([sys.executable, "decide.py", "--home", str(store.home), "verify-log"], capture_output=True, text=True)
+        process = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / "decide.py"), "--home", str(store.home), "verify-log"], capture_output=True, text=True)
         self.assertEqual(3, process.returncode)
-        self.assertIn("not canonical", process.stdout)
+        self.assertEqual("broken at seq 1: not canonical\n", process.stdout)
         self.assertNotIn("Traceback", process.stderr)
 
     def test_recovery_refuses_invalid_log_and_wrong_hash(self):
@@ -242,16 +243,54 @@ class StoreTests(unittest.TestCase):
                     data["x"].append(data["x"])
                 with self.assertRaises(DecideError) as caught:
                     store.append("ask", 2, data)
-                self.assertEqual(3, caught.exception.code)
+                self.assertEqual((3, "invalid event"), (caught.exception.code, caught.exception.message))
 
     def test_lock_failure_closes_descriptor(self):
         """lock failure closes descriptor"""
         store = Store(temp_home())
         with patch("decide_store.fcntl.flock", side_effect=OSError("failed")), patch("decide_store.os.close", wraps=os.close) as close:
-            with self.assertRaises(DecideError):
+            with self.assertRaises(DecideError) as caught:
                 with store.lock():
                     pass
+            self.assertEqual((5, "cannot lock store"), (caught.exception.code, caught.exception.message))
             close.assert_called_once()
+
+    def test_configure_failure_closes_descriptor(self):
+        store = Store(temp_home())
+        with patch("decide_store.os.set_blocking", side_effect=OSError("failed")), patch("decide_store.os.close", wraps=os.close) as close:
+            with self.assertRaises(DecideError) as caught:
+                with store.lock():
+                    pass
+            self.assertEqual((5, "cannot configure store file"), (caught.exception.code, caught.exception.message))
+            fd = close.call_args.args[0]
+            with self.assertRaises(OSError):
+                os.fstat(fd)
+
+    def test_event_directory_sync_failure_warns_against_retry(self):
+        store = Store(temp_home())
+        original = __import__("decide_store")._sync_dir
+        calls = 0
+        def sync(path):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("failed")
+            original(path)
+        with store.lock(), patch("decide_store._sync_dir", side_effect=sync):
+            with self.assertRaises(DecideError) as caught:
+                store.append("ask", 1, {})
+        self.assertEqual((5, "event written; directory sync failed; do not retry"),
+                         (caught.exception.code, caught.exception.message))
+        with store.lock():
+            store.append("ask", 2, {})
+        self.assertEqual(2, store.verify()["events"])
+
+    def test_write_failure_reports_error(self):
+        store = Store(temp_home())
+        with store.lock(), patch.object(store, "_write_head", side_effect=OSError("failed")):
+            with self.assertRaises(DecideError) as caught:
+                store.append("ask", 1, {})
+        self.assertEqual((5, "cannot write store"), (caught.exception.code, caught.exception.message))
 
     def test_head_recovery_after_interrupted_append(self):
         """head recovery after interrupted append"""
@@ -301,8 +340,8 @@ class StoreTests(unittest.TestCase):
             store.append("ask", 1, {})
             old_head = store.head_path.read_bytes()
             with patch("decide_store.os.replace", side_effect=OSError("interrupted")):
-                with self.assertRaises(DecideError):
-                    store.append("ask", 2, {})
+                event = store.append("ask", 2, {})
+                self.assertEqual(2, event["seq"])
             self.assertEqual(old_head, store.head_path.read_bytes())
             store.append("ask", 3, {})
         with store.path.open("ab") as stream:
