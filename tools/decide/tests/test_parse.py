@@ -36,6 +36,43 @@ class ParseTextTests(unittest.TestCase):
         self.assertEqual(parse_text("152: B, 3 apples")["result"], "option")
         self.assertEqual(parse_text("Approve 7")["choice"], "rec")
 
+    def test_invisible_range_boundaries_after_a_letter(self):
+        for code in (0x180A, 0x180B, 0x180F, 0x1810,
+                     0xFDFF, 0xFE00, 0xFE0F, 0xFE10,
+                     0xE00FF, 0xE0100, 0xE01EF, 0xE01F0):
+            char = chr(code)
+            with self.subTest(code=hex(code)):
+                text = "1: A, x" + char
+                result = parse_text(text)
+                if code in (0x180B, 0x180F, 0xFE00, 0xFE0F, 0xE0100, 0xE01EF):
+                    self.assertEqual(result["words"], "1: A, x")
+                else:
+                    self.assertEqual(result["words"], text)
+
+    def test_length_limits_at_boundaries(self):
+        for length in (3999, 4000, 4001):
+            text = "1: A, " + "x" * (length - 6)
+            with self.subTest(length=length):
+                self.assertEqual(parse_text(text)["result"], "option" if length <= 4000 else "ambiguous")
+        text = "1: A, " + "x" * 3993 + "e\u0301"
+        self.assertEqual(len(text), 4001)
+        self.assertEqual(parse_text(text)["result"], "ambiguous")
+        for length in (3999, 4000, 4001):
+            text = "1: A, " + "x" * (length - 8) + "\ufb00"
+            with self.subTest(normalized_length=length):
+                self.assertEqual(parse_text(text)["result"], "option" if length <= 4000 else "ambiguous")
+
+    def test_character_validation_and_id_boundaries(self):
+        for text, result, item_id in (("123456789: A", "option", 123456789),
+                                      ("1234567890: A", "ambiguous", None),
+                                      ("1: A, plain 2", "option", 1),
+                                      ("1: A, digit ٢", "ambiguous", None),
+                                      ("1: A, letter", "option", 1),
+                                      ("\u0301", "ambiguous", None)):
+            with self.subTest(text=text):
+                parsed = parse_text(text)
+                self.assertEqual((parsed["result"], parsed["id"]), (result, item_id))
+
     def test_a_widget_tap_is_an_option(self):
         """a widget tap is an option"""
         self.assertEqual(parse_text("152: B, Keep the old layout"), {
