@@ -24,3 +24,7 @@ Feature: decide request schema
   Scenario: git ref component rules are enforced
   Scenario: owner can merge
   Scenario: unknown fields are redacted
+
+  Scenario: review boundaries are enforced
+
+  Scenario: mutation boundaries are enforced

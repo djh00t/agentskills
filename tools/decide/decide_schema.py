@@ -14,7 +14,7 @@ UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 STATES = ("open", "ready", "shown", "on_hold", "approved", "answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded")
 EVENT_TYPES = ("ask", "transition", "chase", "verify", "answer", "closed_by", "outbox", "outbox_sent", "amend", "import", "page_ack", "counter_floor")
 
-_INVISIBLE = {"\u034f", "\u115f", "\u1160", "\u17b4", "\u17b5", "\u2800", "\u3164", "\uffa0"} | set(map(chr, range(0x180b, 0x1810))) | set(map(chr, range(0xfe00, 0xfe10))) | set(map(chr, range(0xe0100, 0xe01f0)))
+_INVISIBLE = {"\u034f", "\u115f", "\u1160", "\u17b4", "\u17b5", "\u2800", "\u3164", "\uffa0", "\U00016fe4", "\U0001d159", "\ufffc"} | set(map(chr, range(0x180b, 0x1810))) | set(map(chr, range(0xfe00, 0xfe10))) | set(map(chr, range(0xe0100, 0xe01f0)))
 
 _FIELDS = {
     "key", "requester", "kind", "title", "question", "why_owner", "options",
@@ -29,14 +29,27 @@ def safe_text(value):
     """Check raw text for invisible, non-printable, or excessive marks."""
     marks = 0
     visible = False
-    for char in value:
+    previous = ""
+    for index, char in enumerate(value):
         category = unicodedata.category(char)
-        marks = marks + 1 if category in ("Mn", "Me") else 0
+        mark = category in ("Mn", "Me")
+        if index == 0 and mark:
+            return False
+        marks = marks + 1 if mark and not "\u0591" <= char <= "\u05c7" else 0
         if marks > 2:
             return False
+        emoji_variation = char == "\ufe0f" and previous and unicodedata.category(previous) == "So"
+        emoji_joiner = (char == "\u200d" and previous and index + 1 < len(value)
+                        and (unicodedata.category(previous) == "So" or previous == "\ufe0f")
+                        and unicodedata.category(value[index + 1]) == "So")
+        if (char in _INVISIBLE and not emoji_variation) or (not char.isprintable() and not char.isspace() and not emoji_joiner):
+            return False
+        if category in ("Cc", "Cs", "Co", "Cn", "Zl", "Zp"):
+            return False
         visible |= category[0] in "LNPS"
-    return (value.isprintable() and not any(c in _INVISIBLE for c in value)
-            and (not value.strip() or visible))
+        previous = char
+    return not value.strip() or visible
+
 
 
 def validate_request(obj):
@@ -152,9 +165,8 @@ def validate_request(obj):
             parts = urlsplit(value)
             host = parts.hostname or ""
             valid = (value.isascii() and parts.scheme == "https"
-                     and bool(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*", host))
-                     and not re.fullmatch(r"(?:[0-9]+|0x[0-9a-f]+)(?:\.(?:[0-9]+|0x[0-9a-f]+))*", host)
-                     and "%" not in parts.netloc and "@" not in parts.netloc
+                     and bool(re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", host))
+                     and "@" not in parts.netloc
                      and not any(c in value for c in "\\\"'`"))
             parts.port
         except ValueError:
@@ -191,6 +203,8 @@ def validate_request(obj):
             values = value if name == "depends_on" and isinstance(value, list) else [value]
             if name == "depends_on" and not isinstance(value, list):
                 error(name, "must be a list")
+            if name == "depends_on" and isinstance(value, list) and len(value) > 20:
+                error(name, "must contain at most 20 items")
             seen = set()
             for i, item in enumerate(values):
                 path = "{}[{}]".format(name, i) if name == "depends_on" else name
@@ -204,6 +218,8 @@ def validate_request(obj):
             if not isinstance(value, list):
                 error(name, "must be a list")
             else:
+                if len(value) > 20:
+                    error(name, "must contain at most 20 items")
                 seen = set()
                 for i, item in enumerate(value):
                     path = "cc[{}]".format(i)
@@ -286,13 +302,15 @@ def validate_request(obj):
                 if not isinstance(pr["trailers"], list):
                     error("pr.trailers", "must be a list")
                 else:
+                    if len(pr["trailers"]) > 20:
+                        error("pr.trailers", "must contain at most 20 items")
                     for i, item in enumerate(pr["trailers"]):
                         if not isinstance(item, str):
                             error("pr.trailers[{}]".format(i), "must be a string")
                         else:
                             if len(item) > 100 or len(unicodedata.normalize("NFKC", item)) > 100:
                                 error("pr.trailers[{}]".format(i), "longer than 100 characters")
-                            if (not safe_text(item)
+                            if (not safe_text(item.partition(": ")[2])
                                     or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*: \S[^\r\n]*", item)):
                                 error("pr.trailers[{}]".format(i), "must be a single trailer line")
     return errors
