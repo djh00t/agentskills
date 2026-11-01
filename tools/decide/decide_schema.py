@@ -35,7 +35,7 @@ def safe_text(value):
     for index, char in enumerate(value):
         category = unicodedata.category(char)
         mark = category in ("Mn", "Me")
-        hebrew_point = "\u0591" <= char <= "\u05c7"
+        hebrew_point = mark and "\u0591" <= char <= "\u05c7"
         if mark and (not previous or previous.isspace()):
             return False
         if hebrew_point:
@@ -49,7 +49,7 @@ def safe_text(value):
         else:
             marks = 0
             hebrew_marks = 0
-            hebrew_base = category.startswith("L") and ("\u05d0" <= char <= "\u05ea" or "\ufb1d" <= char <= "\ufb4f")
+            hebrew_base = category.startswith("L") and ("\u05d0" <= char <= "\u05f2" or "\ufb1d" <= char <= "\ufb4f")
         emoji_variation = char == "\ufe0f" and previous and unicodedata.category(previous) == "So"
         emoji_joiner = (char == "\u200d" and previous and index + 1 < len(value)
                         and (unicodedata.category(previous) == "So" or previous == "\ufe0f")

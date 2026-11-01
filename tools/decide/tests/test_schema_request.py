@@ -464,11 +464,11 @@ class RequestSchemaTests(unittest.TestCase):
             obj = fixture("simple")
             obj["title"] = value
             self.assertEqual([], validate_request(obj))
-        for value in ("\ufb29\u0591", "\u05be", "a" + ("\u0301\u0301\u0591" * 26), "a" + "\u0591" * 79, "a \u0301\u0301", "א" + "\u0591" * 5, "a👩\u200dx", "א\u0591\u0301\u0301\u0591\u0301"):
+        for value in ("\ufb29\u0591", "\u0903", "a" + ("\u0301\u0301\u0591" * 26), "a" + "\u0591" * 79, "a \u0301\u0301", "א" + "\u0591" * 5, "a👩\u200dx", "א\u0591\u0301\u0301\u0591\u0301"):
             obj = fixture("simple")
             obj["title"] = value
             self.assertEqual(["title: contains non-printable or invisible characters"], validate_request(obj), repr(value))
-        for value in ("א" + "\u0591" * 4, "א\u05c7", "\ufb1d\u0591", "\u05ea\u0591", "\ufb4f\u0591", "א\u0301\u0591\u0301"):
+        for value in ("123", "?", "\u05be", " \u05c0 ", " \u05c3", "\u05c6", "a\u05be", "\u05ef\u05b7", "\u05f2\u05b7", "\u05d0\u05b8\u05b8\u05b8\u05d1\u05b8\u05b8", "א" + "\u0591" * 4, "א\u05c7", "\ufb1d\u0591", "\u05ea\u0591", "\ufb4f\u0591", "א\u0301\u0591\u0301"):
             obj = fixture("simple")
             obj["title"] = value
             self.assertEqual([], validate_request(obj), repr(value))
