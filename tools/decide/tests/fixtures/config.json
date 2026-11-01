@@ -1,5 +1,5 @@
 {"version": 1, "roster_path": "roster.yaml", "reviewer_login": "example-reviewer",
- "verdict_regex": "^Verdict: (APPROVE|REQUEST_CHANGES)$", "timezone": "Australia/Sydney",
+ "verdict_regex": "^Verdict: (APPROVE|REQUEST_CHANGES)\\Z", "timezone": "Australia/Sydney",
  "check_times": ["08:00", "12:00", "18:00"],
  "private_patterns": [{"name": "surname", "regex": "(?i)\\bquuxley\\b"}, {"name": "username", "regex": "\\bzqxuser\\b"}],
  "mask_rules": [{"name": "account", "regex": "\\bU\\d{4}(\\d{3})\\b", "replace": "U…\\1"}],
