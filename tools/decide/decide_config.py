@@ -2,15 +2,14 @@
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from decide_common import DecideError, EXIT_ENV, config_path
+from decide_common import DecideError, EXIT_ENV, UUID_RE, config_path
 
 
-# TODO(D01b): Keep this identical to UUID_RE in decide_schema.
-UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 NAME_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 LOGIN_RE = re.compile(r"^[A-Za-z0-9-]{1,39}$")
 KEYS = {
@@ -25,8 +24,8 @@ class Config:
     verdict_re: object
     tz: ZoneInfo
     check_times: tuple
-    private: list
-    masks: list
+    private: tuple
+    masks: tuple
     roster_ids: frozenset
     roster_names: dict
     page_title: str
@@ -49,35 +48,49 @@ def _roster(path):
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         _fail("roster_path", "cannot be read")
-    matches = list(re.finditer(r"^\s*-?\s*id:\s*['\"]?([0-9a-f-]{36})['\"]?\s*$", text, re.M))
     ids = set()
     names = {}
-    for match in matches:
-        identifier = match.group(1)
-        if not UUID_RE.fullmatch(identifier):
+    current = None
+    indent = -1
+    for line in text.splitlines():
+        match = re.match(r"^(\s*)-?\s*id\s*:\s*(.*?)\s*(?:\s+#.*)?$", line, re.IGNORECASE)
+        if match:
+            raw = re.split(r"\s+#", match.group(2), maxsplit=1)[0].strip().strip("'\"")
+            if not UUID_RE.fullmatch(raw):
+                _fail("roster_path", "contains an invalid id")
+            current = raw.lower()
+            if current in ids:
+                _fail("roster_path", "contains duplicate ids")
+            ids.add(current)
+            names[current] = current
+            indent = len(match.group(1))
+        elif re.match(r"^\s*-?\s*id\s*:", line, re.IGNORECASE):
             _fail("roster_path", "contains an invalid id")
-        ids.add(identifier)
-        indent = len(match.group(0)) - len(match.group(0).lstrip())
-        for line in text[match.end():].splitlines():
-            if not line.strip():
-                continue
-            next_indent = len(line) - len(line.lstrip())
-            if next_indent <= indent:
-                break
-            name_match = re.match(r"^\s+name:\s*(.*?)\s*$", line)
-            if name_match:
-                name = name_match.group(1).strip("'\"")
+        elif current is not None:
+            name_match = re.match(r"^(\s+)name:\s*(.*?)\s*$", line)
+            if name_match and len(name_match.group(1)) > indent:
+                name = name_match.group(2).strip("'\"")
                 if name:
-                    names[identifier] = name
-                break
-        names.setdefault(identifier, identifier)
+                    names[current] = name
+            elif line.strip() and len(line) - len(line.lstrip()) <= indent:
+                current = None
     if not ids:
         _fail("roster_path", "contains no ids")
     return frozenset(ids), names
 
 
+def _secure_file(path, key):
+    try:
+        stat = path.lstat()
+        if path.is_symlink() or not path.is_file() or stat.st_uid != os.getuid() or stat.st_mode & 0o077:
+            _fail(key, "has unsafe ownership or permissions")
+    except OSError:
+        _fail(key, "cannot be read")
+
+
 def load_config(path):
     path = Path(path)
+    _secure_file(path, "file")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
@@ -93,11 +106,15 @@ def load_config(path):
     if type(data["version"]) is not int or data["version"] != 1:
         _fail("version")
     roster_value = _string(data, "roster_path")
-    if not roster_value or Path(roster_value).is_absolute():
+    if not roster_value or Path(roster_value).is_absolute() or ".." in Path(roster_value).parts:
         _fail("roster_path")
     roster_file = path.parent / roster_value
-    if not roster_file.is_file():
-        _fail("roster_path", "does not exist")
+    if not roster_file.resolve().is_relative_to(path.parent.resolve()) or any(
+        (path.parent / Path(*Path(roster_value).parts[:i])).is_symlink()
+        for i in range(1, len(Path(roster_value).parts) + 1)
+    ):
+        _fail("roster_path")
+    _secure_file(roster_file, "roster_path")
     reviewer = _string(data, "reviewer_login")
     if not LOGIN_RE.fullmatch(reviewer):
         _fail("reviewer_login")
@@ -143,11 +160,15 @@ def load_config(path):
                 compiled = re.compile(regex)
             except re.error:
                 _fail(key, "has an invalid regex")
+            if compiled.search(""):
+                _fail(key, "has an empty matching regex")
             if key == "private_patterns":
                 target.append((name, compiled))
             else:
                 replacement = value["replace"]
                 if not isinstance(replacement, str):
+                    _fail(key, "has an invalid replacement")
+                if re.search(r"\\(?:g<0>|0)", replacement):
                     _fail(key, "has an invalid replacement")
                 try:
                     compiled.sub(replacement, "")
@@ -160,7 +181,7 @@ def load_config(path):
     if placeholders.count("as_of") != 1 or placeholders.count("waiting") != 1 or len(placeholders) != 2:
         _fail("page_summary")
     roster_ids, roster_names = _roster(roster_file)
-    return Config(reviewer, verdict_re, tz, tuple(times), private, masks, roster_ids,
+    return Config(reviewer, verdict_re, tz, tuple(times), tuple(private), tuple(masks), roster_ids,
                   roster_names, title, summary)
 
 
