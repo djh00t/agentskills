@@ -17,3 +17,10 @@ Global options go before the command. For example, run `python3 decide.py --json
 ## Tests
 
 Run `make check` from this directory.
+
+The generic lint API scans request strings and reports paths and pattern names.
+It requires Python 3.11 or later. It normalizes Unicode and line wraps, but
+does not decode encoded secrets or detect homoglyphs, spaced phone numbers,
+or secrets split across fields or keys. It rejects unsupported value types
+and requests nested more than 256 levels.
+It is not yet connected to a command.
