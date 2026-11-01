@@ -24,3 +24,5 @@ Run `make check` from this directory.
 ## Request text and collection limits
 
 Text permits ordinary Unicode spaces, emoji presentation sequences, and Hebrew marks. A leading nonspacing or enclosing mark is invalid. Other consecutive nonspacing or enclosing marks are limited to two. The `cc`, `depends_on`, and `pr.trailers` lists each allow at most 20 items.
+
+Use `verify-pr <id>` to print a JSON plan; the operator makes the calls and no token is needed. Fail closed if a reviews or check-runs page is full, or if check-run `total_count` exceeds the returned runs.
