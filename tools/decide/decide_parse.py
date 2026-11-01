@@ -1,4 +1,8 @@
-"""Parse replies in rule order: normalize, question, decision-pair ambiguity, option, approve, custom, ambiguity."""
+"""Parse replies in rule order: normalize, question, pair ambiguity, option, approve, custom, ambiguity.
+
+Unicode names depend on Python's Unicode database and can match non-question
+symbols, including question marks in URLs. These are treated as questions.
+"""
 
 import re
 import unicodedata
@@ -36,7 +40,7 @@ def parse_text(text: str) -> dict:
     if t == "":
         return _result("ambiguous", text)
     if any(
-        "QUESTION" in unicodedata.name(char, "") or char == "\u203d"
+        any(word in unicodedata.name(char, "") for word in ("QUESTION", "INTERROBANG"))
         for char in text
     ):
         return _result("question", text, _find_id(t))
