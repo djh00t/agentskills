@@ -1,0 +1,13 @@
+Feature: event, answer and legacy schemas
+
+  Scenario: an event with an unknown type is invalid
+  Scenario: only page_ack and counter_floor may have a null id
+  Scenario: prev_sha256 must be 64 hex characters
+  Scenario: an event timestamp must be UTC with Z
+  Scenario: an answer recorded by anyone but decisions is invalid
+  Scenario: a judgement mapping cannot be custom
+  Scenario: blank words are invalid
+  Scenario: closes ids must be distinct
+  Scenario: a legacy record needs only id kind title and state
+  Scenario: a legacy short head sha is allowed
+  Scenario: closed states are exactly the seven terminal states
