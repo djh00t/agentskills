@@ -23,6 +23,12 @@ class ParseTextTests(unittest.TestCase):
                     "result": result, "id": item_id, "choice": choice, "words": text,
                 })
 
+    def test_approval_requires_a_separator(self):
+        """approval requires a separator"""
+        self.assertEqual(parse_text("approve7"), {
+            "result": "ambiguous", "id": None, "choice": None, "words": "approve7",
+        })
+
     def test_bounds_invisibles_and_answer_contract(self):
         """bounded and safe answer text"""
         for text in ("1" * 4001, "1" * 4301, "1" * 20000, "\ufdfa" * 223):
