@@ -8,16 +8,18 @@ from datetime import datetime
 from pathlib import Path
 import stat
 import threading
+import tempfile
 
 from decide_common import DecideError, EXIT_CONFLICT, EXIT_ENV, emit, home_dir, iso_z, utc_now
 
 ZERO_HASH = "0" * 64
+MAX_LINE_BYTES = 1024 * 1024
 KEYS = {"seq", "ts", "type", "id", "data", "prev_sha256"}
 
 
 def _secure_open(path, flags):
     try:
-        fd = os.open(str(path), flags | os.O_NOFOLLOW, 0o600)
+        fd = os.open(str(path), flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     except OSError as exc:
         if isinstance(exc, FileNotFoundError):
             raise
@@ -26,7 +28,16 @@ def _secure_open(path, flags):
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
         os.close(fd)
         raise DecideError(EXIT_ENV, "store file must be private and owned by the current user")
+    os.set_blocking(fd, True)
     return fd
+
+
+def _sync_dir(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 class Store:
@@ -44,6 +55,7 @@ class Store:
         self.lock_path = self.home / ".lock"
         self.head_path = self.home / "head"
         self._owner = None
+        self._holders = set()
 
     def lock(self, shared=False):
         return _StoreLock(self, shared)
@@ -56,22 +68,17 @@ class Store:
         with os.fdopen(fd, "rb") as stream:
             return stream.read()
 
-    def read_events(self):
-        content = self._read(self.path) or b""
-        try:
-            return [json.loads(line) for line in content.splitlines()]
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise DecideError(EXIT_ENV, "events.jsonl is not JSON") from exc
-
-    def last_line_bytes(self):
-        content = self._read(self.path) or b""
-        lines = content.splitlines()
-        return lines[-1] if lines else None
-
     def append(self, event_type, item_id, data):
         if self._owner != threading.get_ident():
             raise RuntimeError("append requires the store lock")
         result, lines = self._verify_locked()
+        if result["reason"] == "head mismatch" and lines:
+            previous_hash = hashlib.sha256(lines[-2]).hexdigest() if len(lines) > 1 else ZERO_HASH
+            prior_head = json.dumps({"seq": len(lines) - 1, "sha256": previous_hash},
+                                    sort_keys=True, separators=(",", ":")).encode()
+            if self._read(self.head_path) == prior_head:
+                self._write_head(len(lines), hashlib.sha256(lines[-1]).hexdigest())
+                result = {"ok": True}
         if not result["ok"]:
             raise DecideError(EXIT_CONFLICT, "cannot append to a broken log", result)
         previous = lines[-1] if lines else None
@@ -79,20 +86,39 @@ class Store:
                  "id": item_id, "data": data,
                  "prev_sha256": hashlib.sha256(previous).hexdigest() if previous else ZERO_HASH}
         line = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        fd = _secure_open(self.path, os.O_CREAT | os.O_APPEND | os.O_WRONLY)
+        if len(line) > MAX_LINE_BYTES:
+            raise DecideError(EXIT_CONFLICT, "event exceeds size limit")
+        try:
+            fd = _secure_open(self.path, os.O_CREAT | os.O_EXCL | os.O_APPEND | os.O_WRONLY)
+            created = True
+        except DecideError as exc:
+            if not isinstance(exc.__cause__, FileExistsError):
+                raise
+            fd = _secure_open(self.path, os.O_APPEND | os.O_WRONLY)
+            created = False
         with os.fdopen(fd, "ab") as stream:
             stream.write(line + b"\n")
             stream.flush()
             os.fsync(stream.fileno())
-        head = json.dumps({"seq": event["seq"], "sha256": hashlib.sha256(line).hexdigest()},
-                          sort_keys=True, separators=(",", ":")).encode()
-        fd = _secure_open(self.head_path, os.O_CREAT | os.O_WRONLY)
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(head)
-            stream.truncate()
-            stream.flush()
-            os.fsync(stream.fileno())
+        if created:
+            _sync_dir(self.home)
+        self._write_head(event["seq"], hashlib.sha256(line).hexdigest())
         return event
+
+    def _write_head(self, seq, digest):
+        head = json.dumps({"seq": seq, "sha256": digest},
+                          sort_keys=True, separators=(",", ":")).encode()
+        fd, name = tempfile.mkstemp(prefix=".head-", dir=self.home)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(head)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(name, self.head_path)
+            _sync_dir(self.home)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
 
     def verify(self):
         with self.lock(shared=True):
@@ -103,9 +129,11 @@ class Store:
         lines = content.splitlines()
         previous = ZERO_HASH
         for number, raw in enumerate(lines, 1):
+            if len(raw) > MAX_LINE_BYTES:
+                return _broken(len(lines), number, "line exceeds size limit"), lines
             try:
                 event = json.loads(raw)
-            except (ValueError, UnicodeDecodeError):
+            except (ValueError, UnicodeDecodeError, RecursionError):
                 return _broken(len(lines), number, "not JSON"), lines
             seq = event.get("seq") if isinstance(event, dict) else None
             if not isinstance(event, dict) or set(event) != KEYS:
@@ -143,15 +171,17 @@ class _StoreLock:
         self.fd = None
 
     def __enter__(self):
-        if self.store._owner == threading.get_ident():
+        if threading.get_ident() in self.store._holders:
             raise RuntimeError("store lock is not reentrant")
         self.fd = _secure_open(self.store.lock_path, os.O_CREAT | os.O_RDWR)
         fcntl.flock(self.fd, fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX)
+        self.store._holders.add(threading.get_ident())
         if not self.shared:
             self.store._owner = threading.get_ident()
         return self.store
 
     def __exit__(self, exc_type, exc_value, traceback):
+        self.store._holders.remove(threading.get_ident())
         if not self.shared:
             self.store._owner = None
         fcntl.flock(self.fd, fcntl.LOCK_UN)
