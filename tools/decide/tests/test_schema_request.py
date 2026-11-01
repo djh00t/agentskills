@@ -176,14 +176,87 @@ class RequestSchemaTests(unittest.TestCase):
             cases.append(("pr_merge", ("pr", "base"), value))
         for value in ("a/.", "a/..", "-a/repo", "a/../b"):
             cases.append(("pr_merge", ("pr", "repo"), value))
-        for name, path, value in cases:
+        expected = [['key: contains invalid characters'],
+         ['key: longer than 80 characters'],
+         ['title: must be at least 1 character(s)'],
+         ['requester: must be a UUID'],
+         ['kind: must be one of simple, complex, pr_merge'],
+         ['options: must contain 2 to 4 items', 'options: must have exactly one recommended option'],
+         ['options[0].reversible: must be one of yes, no, partly'],
+         ['options[0].rec: must be a boolean', 'options: must have exactly one recommended option'],
+         ['options[0].text: longer than 60 characters'],
+         ['options[0].changes: longer than 200 characters'],
+         ['bounds: must be an object'],
+         ['bounds.time: longer than 100 characters'],
+         ['links: must contain at most 5 items'],
+         ['links[0]: longer than 300 characters'],
+         ['depends_on: must be a list'],
+         ['depends_on[0]: must be an integer greater than or equal to 1'],
+         ['cc[0]: must be a UUID'],
+         ['cc[1]: must be distinct'],
+         ['chat_link: must be a valid https URL'],
+         ['chat_link: longer than 300 characters'],
+         ['quote: longer than 300 characters'],
+         ['pr.repo: must be an owner/repository'],
+         ['pr.number: must be an integer greater than or equal to 1'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.trailers[0]: longer than 100 characters'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.merger: must be owner or agent'],
+         ['pr.merge_method: must be merge, squash or rebase'],
+         ['pr.trailers[0]: must be a single trailer line'],
+         ['question: longer than 300 characters'],
+         ['why_owner: longer than 200 characters'],
+         ['rec_reason: longer than 150 characters'],
+         ['title: contains non-printable or invisible characters'],
+         ['title: contains non-printable or invisible characters'],
+         ['title: contains non-printable or invisible characters'],
+         ['title: must be at least 1 character(s)'],
+         ['question: contains non-printable or invisible characters'],
+         ['question: contains non-printable or invisible characters'],
+         ['question: contains non-printable or invisible characters'],
+         ['question: must be at least 1 character(s)'],
+         ['why_owner: contains non-printable or invisible characters'],
+         ['why_owner: contains non-printable or invisible characters'],
+         ['why_owner: contains non-printable or invisible characters'],
+         ['why_owner: must be at least 1 character(s)'],
+         ['rec_reason: contains non-printable or invisible characters'],
+         ['rec_reason: contains non-printable or invisible characters'],
+         ['rec_reason: contains non-printable or invisible characters'],
+         ['rec_reason: must be at least 1 character(s)'],
+         ['options[0].text: contains non-printable or invisible characters'],
+         ['options[0].changes: contains non-printable or invisible characters'],
+         ['bounds.time: contains non-printable or invisible characters'],
+         ['quote: contains non-printable or invisible characters'],
+         ['links[0]: must be a valid https URL'],
+         ['links[0]: must be a valid https URL'],
+         ['links[0]: must be a valid https URL'],
+         ['links[0]: must be a valid https URL'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.base: must be a valid git ref'],
+         ['pr.repo: must be an owner/repository'],
+         ['pr.repo: must be an owner/repository'],
+         ['pr.repo: must be an owner/repository'],
+         ['pr.repo: must be an owner/repository']]
+        for index, (name, path, value) in enumerate(cases):
             with self.subTest(name=name, path=path, value=value):
                 obj = fixture(name)
                 target = obj
                 for part in path[:-1]:
                     target = target[part]
                 target[path[-1]] = value
-                self.assertTrue(validate_request(obj))
+                self.assertEqual(expected[index], validate_request(obj))
 
     def test_required_and_unknown_nested_fields_and_equal_times(self):
         """required fields and time boundaries are enforced"""
@@ -218,7 +291,64 @@ class RequestSchemaTests(unittest.TestCase):
             with self.subTest(base=base):
                 obj = fixture("pr_merge")
                 obj["pr"]["base"] = base
-                self.assertTrue(validate_request(obj))
+                self.assertEqual(["pr.base: must be a valid git ref"], validate_request(obj))
+
+    def test_spoofing_and_review_boundaries(self):
+        """spoofing and review boundaries are rejected"""
+        for value in ("\u034f", "\u115f", "\u1160", "\u17b4", "\u17b5", "\u2800", "\u3164", "\uffa0", "\u180b", "\ufe0f", "\U000e0100", "a\u2028b", "a\u2029b", "\ud800", "\ue000"):
+            obj = fixture("simple")
+            obj["title"] = value
+            self.assertIn("title: contains non-printable or invisible characters", validate_request(obj))
+        for value in ("https://a@b/", "https://a\\@b", "https://а.test", "https://a。b", "https://a:abc/", "https://a:99999/", "https://a/\"x", "https://a/'x", "https://a/`x", "https://a/<", "https://a/>", "https://a/[", "https://a/\u200b", "https://a/\x00"):
+            obj = fixture("simple")
+            obj["links"] = [value]
+            self.assertIn("links[0]: must be a valid https URL", validate_request(obj))
+        for value in ("HEAD", "FETCH_HEAD", "refs/heads/main", "refs/pull/1/head", "mаin", "main\u034f", "main\u200b"):
+            obj = fixture("pr_merge")
+            obj["pr"]["base"] = value
+            self.assertEqual(["pr.base: must be a valid git ref"], validate_request(obj))
+        for value in ("A: b\rC: d", "A: b\x00", "A: b\x1b", "A: b\vC: d", "A: b\fC: d", "A: b\x1cC: d", "A: b\x85C: d", "A: b\u2028C: d", "A: b\u2029C: d", "A: \u202e", "A:  ", "1: b"):
+            obj = fixture("pr_merge")
+            obj["pr"]["trailers"] = [value]
+            self.assertIn("pr.trailers[0]: must be a single trailer line", validate_request(obj))
+        for value, message in (("bad", "pr.trailers: must be a list"), ([1], "pr.trailers[0]: must be a string")):
+            obj = fixture("pr_merge")
+            obj["pr"]["trailers"] = value
+            self.assertEqual([message], validate_request(obj))
+        for value in (0, True, "1"):
+            obj = fixture("pr_merge")
+            obj["pr"]["merge_order"] = value
+            self.assertEqual(["pr.merge_order: must be an integer greater than or equal to 1"], validate_request(obj))
+        for field in ("text", "changes"):
+            obj = fixture("simple")
+            obj["options"][0][field] = "  "
+            self.assertEqual(["options[0]." + field + ": must be at least 1 character(s)"], validate_request(obj))
+        obj = fixture("complex")
+        obj["quote"] = "  "
+        self.assertEqual(["quote: must be at least 1 character(s)"], validate_request(obj))
+        obj = fixture("pr_merge")
+        obj["pr"]["head_sha"] = "A" * 40
+        self.assertEqual(["pr.head_sha: must be a 40-character lowercase hex sha"], validate_request(obj))
+        for container, field, message in (("pr", "merge_method", "pr.merge_method: is required"), ("option", "rec", "options[1].rec: is required")):
+            obj = fixture("pr_merge")
+            del (obj["pr"] if container == "pr" else obj["options"][1])[field]
+            self.assertEqual([message], validate_request(obj))
+        for length in (300, 301):
+            obj = fixture("simple")
+            obj["links"] = ["https://a/" + "x" * (length - 10)]
+            self.assertEqual([] if length == 300 else ["links[0]: longer than 300 characters"], validate_request(obj))
+        for length in (100, 101):
+            obj = fixture("pr_merge")
+            obj["pr"]["trailers"] = ["A: " + "x" * (length - 3)]
+            self.assertEqual([] if length == 100 else ["pr.trailers[0]: longer than 100 characters"], validate_request(obj))
+        for length in (39, 40):
+            obj = fixture("pr_merge")
+            obj["pr"]["repo"] = "a" * length + "/b"
+            self.assertEqual([] if length == 39 else ["pr.repo: must be an owner/repository"], validate_request(obj))
+        for value in (0, 1):
+            obj = fixture("simple")
+            obj["supersedes"] = value
+            self.assertEqual([] if value else ["supersedes: must be an integer greater than or equal to 1"], validate_request(obj))
 
     def test_owner_can_merge(self):
         obj = fixture("pr_merge")

@@ -14,6 +14,8 @@ UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 STATES = ("open", "ready", "shown", "on_hold", "approved", "answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded")
 EVENT_TYPES = ("ask", "transition", "chase", "verify", "answer", "closed_by", "outbox", "outbox_sent", "amend", "import", "page_ack", "counter_floor")
 
+_INVISIBLE = {"\u034f", "\u115f", "\u1160", "\u17b4", "\u17b5", "\u2800", "\u3164", "\uffa0"} | set(map(chr, range(0x180b, 0x1810))) | set(map(chr, range(0xfe00, 0xfe10))) | set(map(chr, range(0xe0100, 0xe01f0)))
+
 _FIELDS = {
     "key", "requester", "kind", "title", "question", "why_owner", "options",
     "rec_reason", "bounds", "links", "pr", "priority", "depends_on",
@@ -25,7 +27,10 @@ _PR_FIELDS = {"repo", "number", "head_sha", "base", "merger", "merge_method", "m
 
 def _text_safety(value):
     normalized = unicodedata.normalize("NFKC", value)
-    return normalized, not any(unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in normalized)
+    safe = all(text.isprintable() and not any(char in _INVISIBLE for char in text) for text in (value, normalized))
+    if normalized.strip() and not any(not unicodedata.category(char).startswith("M") and not char.isspace() for char in normalized):
+        safe = False
+    return normalized, safe
 
 
 def validate_request(obj):
@@ -46,14 +51,15 @@ def validate_request(obj):
         if not isinstance(value, str):
             error(path, "must be a string")
             return False
+        raw_too_long = maximum is not None and len(value) > maximum
         checked, safe = _text_safety(value)
         if not safe:
-            error(path, "contains control, format or surrogate characters")
+            error(path, "contains non-printable or invisible characters")
         if strip:
             checked = checked.strip()
         if len(checked) < minimum:
             error(path, "must be at least {} character(s)".format(minimum))
-        if maximum is not None and len(checked) > maximum:
+        if maximum is not None and (raw_too_long or len(checked) > maximum):
             error(path, "longer than {} characters".format(maximum))
         return True
 
@@ -139,10 +145,13 @@ def validate_request(obj):
             return
         try:
             parts = urlsplit(value)
-            valid = parts.scheme == "https" and bool(parts.netloc)
+            valid = (value.isascii() and parts.scheme == "https" and bool(parts.hostname)
+                     and parts.username is None and "@" not in parts.netloc
+                     and not any(c in value for c in "\\\"'`"))
+            parts.port
         except ValueError:
             valid = False
-        if not valid or any(c.isspace() or unicodedata.category(c) in ("Cc", "Cf") or c in "<>[]" for c in value):
+        if not valid or not value.isprintable() or any(c.isspace() or c in "<>[]" for c in value):
             error(path, "must be a valid https URL")
         if len(value) > 300:
             error(path, "longer than 300 characters")
@@ -256,8 +265,10 @@ def validate_request(obj):
                 if (not isinstance(base, str) or not 1 <= len(base) <= 100
                         or base.startswith("-") or ".." in base or "@{" in base
                         or base == "@" or base.endswith(("/", "."))
+                        or not re.fullmatch(r"[A-Za-z0-9._/-]+", base)
+                        or base == "HEAD" or base.endswith("_HEAD") or base.startswith("refs/")
                         or any(not part or part.startswith(".") or part.endswith(".lock") for part in base.split("/"))
-                        or any(c.isspace() or unicodedata.category(c) in ("Cc", "Cf") or c in "~^:?*[\\" for c in base)):
+                        ):
                     error("pr.base", "must be a valid git ref")
             if "merger" in pr and pr["merger"] not in ("owner", "agent"):
                 error("pr.merger", "must be owner or agent")
@@ -273,13 +284,16 @@ def validate_request(obj):
                         else:
                             if len(item) > 100:
                                 error("pr.trailers[{}]".format(i), "longer than 100 characters")
-                            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*: [^\r\n]+", item):
+                            if (not unicodedata.normalize("NFKC", item).isprintable()
+                                    or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*: \S[^\r\n]*", item)):
                                 error("pr.trailers[{}]".format(i), "must be a single trailer line")
     return errors
 
 
 def _safe_text(value, maximum=None):
     if not isinstance(value, str):
+        return False
+    if maximum is not None and len(value) > maximum:
         return False
     normalized, safe = _text_safety(value)
     return bool(normalized.strip()) and (maximum is None or len(normalized) <= maximum) and safe
@@ -385,7 +399,7 @@ def validate_legacy(rec):
         errors.append("kind: must be a known kind")
     if "title" not in rec:
         errors.append("title: is required")
-    elif not _safe_text(rec["title"]):
+    elif not _safe_text(rec["title"], 80):
         errors.append("title: must be a non-empty string")
     if "state" not in rec:
         errors.append("state: is required")
