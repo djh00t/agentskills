@@ -23,3 +23,6 @@ Feature: Private configuration and file masking
   Scenario: a resolved roster outside the config directory exits 5
   Scenario: scan limits apply before and after normalization
   Scenario: config files and roster paths enforce their separate guards
+  Scenario: unreadable private files and invalid types fail closed
+  Scenario: mask collisions and duplicate hits are handled safely
+  Scenario: roster names do not cross sibling entries
