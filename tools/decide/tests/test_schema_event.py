@@ -25,6 +25,9 @@ class EventSchemaTests(unittest.TestCase):
         self.assertEqual(validate_legacy(legacy), [])
         self.assertEqual(validate_legacy(dict(legacy, requester="11111111-1111-4111-8111-111111111111")), [])
         self.assertEqual(validate_legacy(dict(legacy, requester=None)), [])
+        self.assertEqual(validate_legacy(dict(legacy, requester=1)), ["requester: must be a UUID"])
+        self.assertEqual(validate_legacy(dict(legacy, pr=None)), [])
+        self.assertEqual(validate_legacy(dict(legacy, pr={"head_sha": 1})), ["pr.head_sha: must be 7 to 40 lowercase hex characters"])
         self.assertEqual(validate_legacy(dict(legacy, pr={"head_sha": "ABCDEF0"})), ["pr.head_sha: must be 7 to 40 lowercase hex characters"])
         for value in ("a" + "\u0301" * 3, "a\u0f77", "\u00b4", "\u0903"):
             with self.subTest(value=value):
@@ -38,11 +41,13 @@ class EventSchemaTests(unittest.TestCase):
         """only page_ack and counter_floor may have a null id"""
         self.assertEqual(validate_event(event(id=None)), ["id: must be a positive integer or null for page_ack/counter_floor"])
         self.assertEqual(validate_event(event(type="page_ack", id=None)), [])
+        self.assertEqual(validate_event(event(type="page_ack", id="x")), ["id: must be a positive integer or null for page_ack/counter_floor"])
         self.assertEqual(validate_event(event(type="counter_floor", id=None)), [])
 
     def test_prev_sha256_must_be_64_hex_characters(self):
         """prev_sha256 must be 64 hex characters"""
         self.assertEqual(validate_event(event(prev_sha256="A" * 64)), ["prev_sha256: must be 64 lowercase hex characters"])
+        self.assertEqual(validate_event(event(prev_sha256=1)), ["prev_sha256: must be 64 lowercase hex characters"])
 
     def test_an_event_timestamp_must_be_utc_with_z(self):
         """an event timestamp must be UTC with Z"""
