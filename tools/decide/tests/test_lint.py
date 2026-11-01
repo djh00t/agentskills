@@ -126,6 +126,46 @@ class LintFeatureTests(unittest.TestCase):
             with self.subTest(invisible=ascii(invisible)):
                 self.assertIn("github_token", scan_text(token[:8] + invisible + token[8:]))
 
+    def test_combining_marks_controls_and_surrogates(self):
+        """combining marks controls and surrogates do not hide secrets"""
+        token = "gh" + "p_" + "A" * 36
+        characters = [chr(code) for code in range(0x300, 0x370)]
+        characters += [chr(code) for code in range(0x20) if code not in (9, 10, 13)]
+        characters += [chr(code) for code in range(0x7f, 0xa0) if code != 0x85]
+        characters += ["\ud800"]
+        for char in characters:
+            with self.subTest(char=ascii(char)):
+                self.assertIn("github_token", scan_text(token[:8] + char + token[8:]))
+        self.assertIn("email", scan_text("x@exa\u0308mple.com"))
+        self.assertNotIn("github_token", scan_text(token[:8] + "\t" + token[8:]))
+
+    def test_recomposition_preserves_pushover_window(self):
+        """recomposition preserves the pushover detection window"""
+        text = "pushover " + "\u1100\u200b\u1161" * 20 + " " + "a" * 30
+        self.assertIn("pushover_key", scan_text(text))
+
+    def test_depth_and_scalar_boundaries(self):
+        """depth and scalar boundaries are enforced"""
+        for container in (lambda value: [value], lambda value: {"a": value}):
+            value = "safe"
+            for _ in range(256):
+                value = container(value)
+            self.assertEqual(lint_request(value), [])
+            with self.assertRaises(ValueError):
+                lint_request(container(value))
+        self.assertEqual(lint_request({"a": None, "b": 1.5, "c": True, "d": 2}), [])
+
+    def test_key_and_pattern_boundaries(self):
+        """key labels and pattern boundaries are enforced"""
+        token = "gh" + "p_" + "A" * 36
+        self.assertEqual(lint_request({"a" * 64: token, "a.b": token}),
+                         [("a" * 64, "github_token"), ("[key1]", "github_token")])
+        self.assertEqual(lint_request([token, "sk-" + "A" * 24]),
+                         [("[0]", "github_token"), ("[1]", "openai_key")])
+        self.assertIn("pushover_key", scan_text("pushover" + " " * 40 + "a" * 30))
+        self.assertNotIn("pushover_key", scan_text("pushover" + " " * 41 + "a" * 30))
+        self.assertNotIn("long_number", scan_text("12345678"))
+
     def test_untrusted_keys(self):
         """untrusted keys are scanned and safely labelled"""
         token = "gh" + "p_" + "A" * 36
