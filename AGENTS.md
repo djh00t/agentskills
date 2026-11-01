@@ -8,6 +8,10 @@
 
 All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review, evidence rules and incidents. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md wins.
 
+## Colony
+
+This repo is in the colony (djh00t/colony, roster.yaml `projects`). Rules: PRINCIPLES.md (djh00t/agentskills main) is the floor, then djh00t/colony delegations.yaml and rules/, then this file; stricter wins. Reviewer: Peer Reviewer. Asks for David go via Decisions & Action Items. Colony friction: open a Not working issue in djh00t/colony.
+
 ## Dependency Advisor
 
 - Before adding or upgrading a direct dependency, run `depadvisor recommend <package> --ecosystem <ecosystem> --policy <policy>`.
