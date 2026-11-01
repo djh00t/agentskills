@@ -15,7 +15,7 @@ class FeatureCoverageTests(unittest.TestCase):
             scenarios.extend(
                 line.split("Scenario:", 1)[1].strip()
                 for line in feature.read_text(encoding="utf-8").splitlines()
-                if "Scenario:" in line
+                if line.strip().startswith("Scenario:")
             )
         tests = []
         for test_file in sorted((ROOT / "tests").glob("test_*.py")):
