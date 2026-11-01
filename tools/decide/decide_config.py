@@ -48,11 +48,10 @@ def _roster(text):
     ids = set()
     names = {}
     current = None
-    indent = -1
     for line in text.splitlines():
         match = re.match(r"^(\s*)-?\s*id\s*:\s*(.*?)\s*(?:\s+#.*)?$", line, re.IGNORECASE)
         if match:
-            raw = re.split(r"\s+#", match.group(2), maxsplit=1)[0].strip().strip("'\"")
+            raw = match.group(2).strip().strip("'\"")
             if not UUID_RE.fullmatch(raw):
                 _fail("roster_path", "contains an invalid id")
             current = raw.lower()
@@ -61,7 +60,7 @@ def _roster(text):
             ids.add(current)
             names[current] = current
             indent = len(match.group(1))
-        elif re.search(r"\bid\s*:", line, re.IGNORECASE):
+        elif re.search(r"\bid[\'\"]?\s*:", line, re.IGNORECASE):
             _fail("roster_path", "contains an unsupported id entry")
         elif current is not None:
             name_match = re.match(r"^(\s+)name:\s*(.*?)\s*$", line)
@@ -179,7 +178,7 @@ def load_config(path):
                     _fail(key, "has an invalid replacement")
                 target.append((name, compiled, replacement))
     title = _string(data, "page_title", 1, 80)
-    summary = _string(data, "page_summary", 1, 400)
+    summary = _string(data, "page_summary", 0, 400)
     placeholders = re.findall(r"\{([^{}]*)\}", summary)
     if placeholders.count("as_of") != 1 or placeholders.count("waiting") != 1 or len(placeholders) != 2:
         _fail("page_summary")
