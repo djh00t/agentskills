@@ -6,9 +6,9 @@
 
 ## Operating principles
 
-All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review, evidence rules and incidents. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md in this repo wins; otherwise, stricter rules apply.
+All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review, evidence rules and incidents. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md in this repo wins; on any other conflict, the stricter rule wins.
 
-## Colony
+## Maintainer's agent projects
 
 This repo is part of the maintainer's group of agent projects. Agents in that
 group follow additional rules. For outside contributors, this file and
