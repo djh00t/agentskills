@@ -74,24 +74,47 @@ class EventSchemaTests(unittest.TestCase):
         self.assertTrue(validate_answer(answer(msg_ref="ﬃ" * 67)))
         self.assertEqual(validate_answer(answer(words="café", msg_ref="réf")), [])
 
-    def test_review_boundaries(self):
-        """review boundaries"""
+    def test_validation_rejects_invalid_boundaries(self):
+        """validation rejects invalid boundaries"""
         legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open"}
         for timestamp in ("2026-13-05T12:00:00Z", "2026-01-05T99:00:00Z", "２０２６-01-05T12:00:00Z"):
-            self.assertIn("ts: must be a UTC timestamp ending in Z", validate_event(event(ts=timestamp)))
-        self.assertTrue(validate_event(event(id=0)))
-        self.assertTrue(validate_event(event(prev_sha256="0" * 63)))
+            self.assertEqual(validate_event(event(ts=timestamp)), ["ts: must be a UTC timestamp ending in Z"])
+        self.assertEqual(validate_event(event(id=0)), ["id: must be a positive integer or null for page_ack/counter_floor"])
+        self.assertEqual(validate_event(event(prev_sha256="0" * 63)), ["prev_sha256: must be 64 lowercase hex characters"])
         self.assertEqual(validate_answer(answer(mapped_by="judgement")), [])
-        self.assertIn("label: must be a label or null for custom", validate_answer(answer(choice="custom", label="A")))
-        self.assertTrue(validate_answer(answer(closes=[{"id": True, "choice": "A"}])))
-        self.assertTrue(validate_legacy(dict(legacy, id=True)))
+        self.assertEqual(validate_answer(answer(choice="custom", label="A")), ["label: must be a label or null for custom"])
+        self.assertEqual(validate_answer(answer(closes=[{"id": True, "choice": "A"}])), ["closes[0].id: must be a positive integer"])
+        self.assertEqual(validate_legacy(dict(legacy, id=True)), ["id: must be an integer greater than or equal to 1"])
         for value in ("bad", []):
-            self.assertIn("pr: must be an object", validate_legacy(dict(legacy, pr=value)))
+            self.assertEqual(validate_legacy(dict(legacy, pr=value)), ["pr: must be an object"])
         for field, limit in (("words", 4000), ("msg_ref", 200)):
             self.assertEqual(validate_answer(answer(**{field: "x" * limit})), [])
-            self.assertTrue(validate_answer(answer(**{field: "x" * (limit + 1)})))
-        self.assertTrue(validate_answer(answer(words="\ud800")))
-        self.assertTrue(validate_legacy(dict(legacy, title="\ud800")))
+            self.assertEqual(validate_answer(answer(**{field: "x" * (limit + 1)})), ["{}: must contain 1 to {} {}characters".format(field, limit, "non-blank " if field == "words" else "")])
+        self.assertEqual(validate_answer(answer(words="\ud800")), ["words: must contain 1 to 4000 non-blank characters"])
+        self.assertEqual(validate_legacy(dict(legacy, title="\ud800")), ["title: must be a non-empty string"])
+
+    def test_event_and_answer_boundaries(self):
+        """event and answer boundaries are enforced"""
+        try:
+            errors = validate_event(event(ts=1))
+        except TypeError:
+            self.fail("non-string timestamp must return a validation error")
+        self.assertEqual(errors, ["ts: must be a UTC timestamp ending in Z"])
+        self.assertEqual(validate_event(event(id=True)), ["id: must be a positive integer or null for page_ack/counter_floor"])
+        self.assertEqual(validate_answer(answer(via="card")), [])
+        self.assertEqual(validate_answer(answer(closes=[{"id": 1, "choice": "custom"}])), ["closes[0].choice: must be a label"])
+        self.assertEqual(validate_answer(answer(closes="")), ["closes: must be a list"])
+        legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open", "pr": {"head_sha": "a" * 41}}
+        self.assertEqual(validate_legacy(legacy), ["pr.head_sha: must be 7 to 40 lowercase hex characters"])
+
+    def test_free_text_rejects_invisible_and_overlong_raw_values(self):
+        """free text rejects invisible and overlong raw values"""
+        legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open"}
+        for value in ("\ue000", "\ufffe", "\uffff", "\u0378", "\u3164", "\u115f", "\u2800", "\u0301"):
+            with self.subTest(value=value):
+                self.assertEqual(validate_answer(answer(words=value)), ["words: must contain 1 to 4000 non-blank characters"])
+        self.assertEqual(validate_answer(answer(words="e\u0301" * 2001)), ["words: must contain 1 to 4000 non-blank characters"])
+        self.assertEqual(validate_legacy(dict(legacy, title="x" * 81)), ["title: must be a non-empty string"])
 
     def test_unknown_fields_do_not_echo_input(self):
         """unknown fields do not echo input"""
@@ -145,8 +168,6 @@ class EventSchemaTests(unittest.TestCase):
             with self.subTest(changes=changes):
                 self.assertTrue(validate_legacy(dict(legacy, **changes)))
         self.assertTrue(validate_legacy([]))
-
-
 
 if __name__ == "__main__":
     unittest.main()
