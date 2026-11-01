@@ -30,3 +30,7 @@ Feature: Private configuration and file masking
   Scenario: wrapped private values are detected
   Scenario: unsupported roster id entries are rejected
   Scenario: wrapped file values report their first line
+  Scenario: mask and scan handle wrapped and repeated matches
+  Scenario: many short lines are masked quickly
+  Scenario: wrapped hits are distinct by file and pattern
+  Scenario: invalid UTF-8 in a lint file fails cleanly
