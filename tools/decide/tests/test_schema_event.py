@@ -89,6 +89,44 @@ class EventSchemaTests(unittest.TestCase):
         self.assertTrue(validate_legacy(dict(legacy, requester="12345678-1234-1234-1234-123456789abc\n")))
         self.assertTrue(validate_legacy(dict(legacy, pr={"head_sha": "abcdef0\n"})))
 
+    def test_event_envelope_rejects_invalid_fields(self):
+        for changes in ({"seq": 0}, {"seq": True}, {"data": []}):
+            with self.subTest(changes=changes):
+                self.assertTrue(validate_event(event(**changes)))
+        for field in event():
+            value = event()
+            del value[field]
+            self.assertTrue(validate_event(value), field)
+        self.assertTrue(validate_event([]))
+
+    def test_answer_rejects_invalid_fields(self):
+        cases = (
+            {"choice": "X"}, {"choice": "custom", "label": "X"}, {"label": "B"},
+            {"via": "other"}, {"mapped_by": "other"}, {"closes": {}},
+            {"closes": [None]}, {"closes": [{"id": 1, "choice": "A", "extra": 1}]},
+            {"closes": [{"id": 0, "choice": "A"}]},
+            {"closes": [{"id": 1, "choice": "X"}]},
+        )
+        for changes in cases:
+            with self.subTest(changes=changes):
+                self.assertTrue(validate_answer(answer(**changes)))
+        for field in answer():
+            value = answer()
+            del value[field]
+            self.assertTrue(validate_answer(value), field)
+        self.assertTrue(validate_answer([]))
+
+    def test_legacy_rejects_invalid_required_fields(self):
+        legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open"}
+        for field in legacy:
+            value = dict(legacy)
+            del value[field]
+            self.assertTrue(validate_legacy(value), field)
+        for changes in ({"id": 0}, {"kind": "unknown"}, {"state": "unknown"}):
+            with self.subTest(changes=changes):
+                self.assertTrue(validate_legacy(dict(legacy, **changes)))
+        self.assertTrue(validate_legacy([]))
+
     def test_closed_states_are_exactly_the_seven_terminal_states(self):
         """closed states are exactly the seven terminal states"""
         self.assertEqual(CLOSED_STATES, frozenset({"answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded"}))
