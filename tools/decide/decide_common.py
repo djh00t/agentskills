@@ -1,7 +1,9 @@
 """Shared helpers for the decide command line tool."""
 
+import argparse
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,3 +37,9 @@ def utc_now():
 
 def iso_z(dt):
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_item_id(value):
+    if not re.fullmatch(r"[0-9]+", value):
+        raise argparse.ArgumentTypeError("item id must contain ASCII digits")
+    return int(value)
