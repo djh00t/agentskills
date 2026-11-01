@@ -23,3 +23,7 @@ Feature: Generic text linting
   Scenario: untrusted keys are scanned and safely labelled
   Scenario: unsupported values and excessive nesting are rejected
   Scenario: line wraps do not hide secrets
+  Scenario: combining marks controls and surrogates do not hide secrets
+  Scenario: recomposition preserves the pushover detection window
+  Scenario: depth and scalar boundaries are enforced
+  Scenario: key labels and pattern boundaries are enforced
