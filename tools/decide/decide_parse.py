@@ -11,7 +11,7 @@ import unicodedata
 _INVISIBLE = {"\u034f", "\u115f", "\u1160", "\u17b4", "\u17b5", "\u2800", "\u3164", "\uffa0", "\U00016fe4", "\U0001d159", "\ufffc"} | set(map(chr, range(0x180b, 0x1810))) | set(map(chr, range(0xfe00, 0xfe10))) | set(map(chr, range(0xe0100, 0xe01f0)))
 
 _OPTION_WITH_REASON = re.compile(
-    r"#?([0-9]{1,9})\s*:\s*([A-Da-d])(?:\s*[,.:;-]\s*(.*))?", re.S
+    r"#?([0-9]{1,9})\s*:\s*([A-Da-d])(?:\s*[,.:;-]\s*(.*))?"
 )
 _OPTION_TOKEN = re.compile(r"#?([0-9]{1,9})\s+([A-Da-d])")
 _APPROVE = re.compile(r"approve\s+#?([0-9]{1,9})", re.I)
@@ -52,8 +52,6 @@ def parse_text(text: str) -> dict:
     if not words.isprintable():
         return _result("ambiguous", words)
     text = words
-    if t == "":
-        return _result("ambiguous", text)
     if len(_DECISION_PAIR.findall(t)) > 1:
         return _result("ambiguous", text)
 
@@ -64,7 +62,7 @@ def parse_text(text: str) -> dict:
         mentioned_ids.update(int(item.group(1)) for item in _HASH_ID.finditer(t))
         if len(mentioned_ids) > 1:
             return _result("ambiguous", text)
-        return _result("option", text, int(match.group(1)), match.group(2).upper())
+        return _result("option", text, option_id, match.group(2).upper())
 
     match = _APPROVE.fullmatch(t)
     if match:
