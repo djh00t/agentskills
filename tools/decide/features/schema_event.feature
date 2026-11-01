@@ -13,4 +13,6 @@ Feature: event, answer and legacy schemas
   Scenario: free text rejects unsafe characters and uses normalized length
   Scenario: unknown fields do not echo input
   Scenario: identifiers reject trailing newlines
-  Scenario: review boundaries
+  Scenario: validation rejects invalid boundaries
+  Scenario: event and answer boundaries are enforced
+  Scenario: free text rejects invisible and overlong raw values
