@@ -82,10 +82,15 @@ def fold(events):
                 errors = validate_request(request)
                 if errors:
                     raise DecideError(3, "invalid legacy request: " + "; ".join(errors))
+                transitions = TRANSITIONS[record["kind"]]
+                reachable = set(transitions).union(*transitions.values())
+                if record["state"] not in reachable:
+                    raise DecideError(3, "invalid legacy state for kind")
+                created_at = record.get("created_at", event["ts"])
                 item = {"id": item_id, "kind": record["kind"], "state": record["state"],
                         "request": request,
-                        "created_at": record.get("created_at", event["ts"]), "updated_at": record.get("created_at", event["ts"]),
-                        "closed_at": None, "last_shown_at": None, "verify": None,
+                        "created_at": created_at, "updated_at": created_at,
+                        "closed_at": created_at if record["state"] in CLOSED else None, "last_shown_at": None, "verify": None,
                         "answer": None, "legacy": True, "rank": record.get("rank")}
             result[item_id] = item
             continue
