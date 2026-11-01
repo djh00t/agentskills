@@ -458,7 +458,7 @@ class RequestSchemaTests(unittest.TestCase):
             obj = fixture("simple")
             obj["title"] = value
             self.assertEqual([], validate_request(obj))
-        for value in ("\ufb29\u0591", "\u0903", "a" + ("\u0301\u0301\u0591" * 26), "a" + "\u0591" * 79, "a \u0301\u0301", "א" + "\u0591" * 5, "a👩\u200dx", "א\u0591\u0301\u0301\u0591\u0301"):
+        for value in ("\ufb29\u0591", "\u0903", "a\u0591", "ж\u0591", "a" + ("\u0301\u0301\u0591" * 26), "a" + "\u0591" * 79, "a \u0301\u0301", "א" + "\u0591" * 5, "a👩\u200dx", "א\u0591\u0301\u0301\u0591\u0301"):
             obj = fixture("simple")
             obj["title"] = value
             self.assertEqual(["title: contains non-printable or invisible characters"], validate_request(obj), repr(value))
@@ -500,3 +500,48 @@ class RequestSchemaTests(unittest.TestCase):
         self.assertEqual([], validate_request(obj))
         obj["bounds"] = {"time": "ﬁ" * 50 + " "}
         self.assertEqual(["bounds.time: longer than 100 characters"], validate_request(obj))
+
+    def test_unreached_validator_branches_are_rejected(self):
+        """unreached validator branches return their exact errors"""
+        missing = object()
+        cases = [
+            ("simple", ("requester",), missing, "requester: is required"),
+            ("simple", ("kind",), missing, "kind: is required"),
+            ("simple", ("priority",), missing, "priority: is required"),
+            ("simple", ("options",), missing, "options: is required"),
+            ("simple", ("options",), "string", "options: must be a list"),
+            ("simple", ("options", 1), 1, "options[1]: must be an object"),
+            ("simple", ("options", 1, "label"), missing, "options[1].label: is required"),
+            ("simple", ("options", 1, "reversible"), missing, "options[1].reversible: is required"),
+            ("simple", ("options", 1, "unknown"), True, "options[1].<unknown field>: unknown field"),
+            ("simple", ("links", 0), 1, "links[0]: must be a string"),
+            ("simple", ("cc", 0), [], "cc[0]: must be a UUID"),
+            ("simple", ("depends_on", 0), [1], "depends_on[0]: must be an integer greater than or equal to 1"),
+            ("simple", ("chase_at",), 1, "chase_at: must be an ISO 8601 string with an offset"),
+            ("simple", ("bounds", "milestone"), 1, "bounds.milestone: must be a string"),
+            ("simple", ("bounds", "spend"), 1, "bounds.spend: must be a string"),
+            ("pr_merge", ("pr",), missing, "pr: is required for pr_merge"),
+            ("pr_merge", ("pr",), [], "pr: must be an object"),
+            ("pr_merge", ("pr", "base"), missing, "pr.base: is required"),
+            ("pr_merge", ("pr", "merge_method"), "squash", None),
+            ("pr_merge", ("pr", "merge_method"), "rebase", None),
+        ]
+        for name, path, value, expected in cases:
+            with self.subTest(name=name, path=path, value=value):
+                obj = fixture(name)
+                if path[0] in ("links", "depends_on"):
+                    obj.setdefault(path[0], [])
+                elif path[0] == "bounds":
+                    obj.setdefault("bounds", {})
+                target = obj
+                for part in path[:-1]:
+                    target = target[part]
+                if value is missing:
+                    del target[path[-1]]
+                elif path[-1] == "unknown":
+                    target["unknown"] = value
+                elif isinstance(target, list) and path[-1] == len(target):
+                    target.append(value)
+                else:
+                    target[path[-1]] = value
+                self.assertEqual([] if expected is None else [expected], validate_request(obj))
