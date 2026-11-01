@@ -16,6 +16,26 @@ Feature: Parse an owner's answer text
     Given the reply text is "152: B, move all of them"
     Then it parses as option 152 B
 
+  Scenario: a question mark in a reason takes precedence over an option
+    Given the reply text is "152: B, is that ok?"
+    Then it parses as question 152
+
+  Scenario: a full-width question mark is a question
+    Given the reply text is "152: B, ok？"
+    Then it parses as question 152
+
+  Scenario: a trailing zero-width space does not hide a question
+    Given the reply text is "152: B?\u200b"
+    Then it parses as question 152
+
+  Scenario: a second decision in a reason is ambiguous
+    Given the reply text is "152: B. Also #153: A"
+    Then it parses as ambiguous
+
+  Scenario: a second decision on a new line is ambiguous
+    Given the reply text is "152: B\n153: A"
+    Then it parses as ambiguous
+
   Scenario: approve N picks the recommendation
     Given the reply text is "approve 7"
     Then it parses as option 7 rec
