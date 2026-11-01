@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from decide_common import DecideError, EXIT_ENV, UUID_RE, config_path
@@ -43,11 +44,7 @@ def _string(data, key, low=None, high=None):
     return value
 
 
-def _roster(path):
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        _fail("roster_path", "cannot be read")
+def _roster(text):
     ids = set()
     names = {}
     current = None
@@ -64,6 +61,8 @@ def _roster(path):
             ids.add(current)
             names[current] = current
             indent = len(match.group(1))
+        elif re.search(r"\bid\s*:", line, re.IGNORECASE):
+            _fail("roster_path", "contains an unsupported id entry")
         elif current is not None:
             name_match = re.match(r"^(\s+)name:\s*(.*?)\s*$", line)
             if name_match and len(name_match.group(1)) > indent:
@@ -79,28 +78,34 @@ def _roster(path):
 
 def _secure_file(path, key):
     try:
-        stat = path.lstat()
-        if path.is_symlink() or not path.is_file() or stat.st_uid != os.getuid() or stat.st_mode & 0o077:
+        if path.is_symlink():
             _fail(key, "has unsafe ownership or permissions")
-    except OSError:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "r", encoding="utf-8") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+                _fail(key, "has unsafe ownership or permissions")
+            return stream.read()
+    except (OSError, UnicodeError):
         _fail(key, "cannot be read")
 
 
 def load_config(path):
     path = Path(path)
-    _secure_file(path, "file")
+    text = _secure_file(path, "file")
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(text)
     except (OSError, UnicodeError, json.JSONDecodeError):
         _fail("file", "cannot be read as JSON")
     if not isinstance(data, dict):
         _fail("object")
     missing = KEYS - data.keys()
     unknown = data.keys() - KEYS
-    if missing:
-        _fail(sorted(missing)[0], "is required")
-    if unknown:
-        _fail(sorted(unknown)[0], "is unknown")
+    if missing or unknown:
+        _fail("keys", "; ".join(filter(None, (
+            "required: " + ", ".join(sorted(missing)) if missing else "",
+            "unknown: " + ", ".join(sorted(unknown)) if unknown else "",
+        ))))
     if type(data["version"]) is not int or data["version"] != 1:
         _fail("version")
     roster_value = _string(data, "roster_path")
@@ -112,7 +117,7 @@ def load_config(path):
         for i in range(1, len(Path(roster_value).parts) + 1)
     ):
         _fail("roster_path")
-    _secure_file(roster_file, "roster_path")
+    roster_text = _secure_file(roster_file, "roster_path")
     reviewer = _string(data, "reviewer_login")
     if not LOGIN_RE.fullmatch(reviewer):
         _fail("reviewer_login")
@@ -166,7 +171,7 @@ def load_config(path):
                 replacement = value["replace"]
                 if not isinstance(replacement, str):
                     _fail(key, "has an invalid replacement")
-                if re.search(r"\\(?:g<0>|0)", replacement):
+                if re.search(r"\\g<0>", replacement):
                     _fail(key, "has an invalid replacement")
                 try:
                     compiled.sub(replacement, "")
@@ -178,7 +183,7 @@ def load_config(path):
     placeholders = re.findall(r"\{([^{}]*)\}", summary)
     if placeholders.count("as_of") != 1 or placeholders.count("waiting") != 1 or len(placeholders) != 2:
         _fail("page_summary")
-    roster_ids, roster_names = _roster(roster_file)
+    roster_ids, roster_names = _roster(roster_text)
     return Config(reviewer, verdict_re, tz, tuple(times), tuple(private), tuple(masks), roster_ids,
                   roster_names, title, summary)
 
