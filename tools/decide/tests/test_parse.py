@@ -101,6 +101,58 @@ class ParseTextTests(unittest.TestCase):
             "words": "152: B, move all of them",
         })
 
+    def test_semicolon_reason_separator_is_an_option(self):
+        """a semicolon reason separator is an option"""
+        self.assertEqual(parse_text("152: B; reason"), {
+            "result": "option", "id": 152, "choice": "B",
+            "words": "152: B; reason",
+        })
+
+    def test_period_reason_separator_is_an_option(self):
+        """a period reason separator is an option"""
+        self.assertEqual(parse_text("152: B. reason"), {
+            "result": "option", "id": 152, "choice": "B",
+            "words": "152: B. reason",
+        })
+
+    def test_colon_reason_separator_is_an_option(self):
+        """a colon reason separator is an option"""
+        self.assertEqual(parse_text("152: B: reason"), {
+            "result": "option", "id": 152, "choice": "B",
+            "words": "152: B: reason",
+        })
+
+    def test_hyphen_reason_separator_is_an_option(self):
+        """a hyphen reason separator is an option"""
+        self.assertEqual(parse_text("152: B - reason"), {
+            "result": "option", "id": 152, "choice": "B",
+            "words": "152: B - reason",
+        })
+
+    def test_hash_prefixed_option_is_an_option(self):
+        """a hash prefixed option is an option"""
+        self.assertEqual(parse_text("#152: B"), {
+            "result": "option", "id": 152, "choice": "B", "words": "#152: B",
+        })
+
+    def test_id_without_a_separator_is_ambiguous(self):
+        """an id without a separator is ambiguous"""
+        self.assertEqual(parse_text("152B"), {
+            "result": "ambiguous", "id": None, "choice": None, "words": "152B",
+        })
+
+    def test_stripped_question_text_keeps_its_id(self):
+        """stripped question text keeps its id"""
+        self.assertEqual(parse_text("  152: B?"), {
+            "result": "question", "id": 152, "choice": None, "words": "  152: B?",
+        })
+
+    def test_normalized_question_id_keeps_its_id(self):
+        """normalized question id keeps its id"""
+        self.assertEqual(parse_text("\uff03152?"), {
+            "result": "question", "id": 152, "choice": None, "words": "\uff03152?",
+        })
+
     def test_full_width_option_is_normalized(self):
         """a full-width option is normalized"""
         text = "152：Ｂ"
