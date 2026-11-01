@@ -116,6 +116,28 @@ class EventSchemaTests(unittest.TestCase):
         self.assertEqual(validate_answer(answer(words="e\u0301" * 2001)), ["words: must contain 1 to 4000 non-blank characters"])
         self.assertEqual(validate_legacy(dict(legacy, title="x" * 81)), ["title: must be a non-empty string"])
 
+    def test_free_text_requires_strings(self):
+        """free text requires strings"""
+        legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open"}
+        try:
+            for field in ("words", "msg_ref"):
+                self.assertEqual(len(validate_answer(answer(**{field: 1}))), 1)
+            self.assertEqual(validate_legacy(dict(legacy, title=1)), ["title: must be a non-empty string"])
+        except (TypeError, AttributeError):
+            self.fail("non-string text must return a validation error")
+
+    def test_invalid_choice_and_label_report_both_errors(self):
+        """invalid choice and label report both errors"""
+        self.assertEqual(validate_answer(answer(choice="X", label="X")), [
+            "choice: must be a label or custom",
+            "label: must be a label or null for custom",
+        ])
+
+    def test_raw_non_printable_text_is_rejected_after_normalization(self):
+        """raw non printable text is rejected after normalization"""
+        self.assertEqual(validate_answer(answer(words="a\u00a0")),
+                         ["words: must contain 1 to 4000 non-blank characters"])
+
     def test_unknown_fields_do_not_echo_input(self):
         """unknown fields do not echo input"""
         for validator, value in ((validate_event, event()), (validate_answer, answer())):
