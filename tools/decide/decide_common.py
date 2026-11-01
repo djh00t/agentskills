@@ -40,7 +40,7 @@ def iso_z(dt):
 
 
 def parse_item_id(value):
-    if re.fullmatch(r"[1-9][0-9]*", value):
+    if re.fullmatch(r"[1-9][0-9]*", value, re.ASCII):
         try:
             return int(value)
         except ValueError:
