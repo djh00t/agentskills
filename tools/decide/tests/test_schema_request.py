@@ -454,10 +454,22 @@ class RequestSchemaTests(unittest.TestCase):
             obj = fixture("simple")
             obj["title"] = value
             self.assertEqual([] if len(value) <= 80 and len(value.replace("ﬁ", "fi")) <= 80 else ["title: longer than 80 characters"], validate_request(obj))
-        for value in ("a\u0590\u0301\u0301", "a\u05c8\u0301\u0301", "a\u0591\u0301\u0301", "a\u05c7\u0301\u0301"):
+        for value in ("א\u0591\u0301\u0301", "א\u05c7\u0301\u0301"):
             obj = fixture("simple")
             obj["title"] = value
-            self.assertEqual(["title: contains non-printable or invisible characters"] if value[1] in "\u0590\u05c8" else [], validate_request(obj))
+            self.assertEqual([], validate_request(obj))
+        for value in ("\ufb29\u0591", "\u05be", "a" + ("\u0301\u0301\u0591" * 26), "a" + "\u0591" * 79, "a \u0301\u0301", "א" + "\u0591" * 5, "a👩\u200dx", "א\u0591\u0301\u0301\u0591\u0301"):
+            obj = fixture("simple")
+            obj["title"] = value
+            self.assertEqual(["title: contains non-printable or invisible characters"], validate_request(obj), repr(value))
+        for value in ("א" + "\u0591" * 4, "א\u05c7", "\ufb1d\u0591", "\u05ea\u0591", "\ufb4f\u0591", "א\u0301\u0591\u0301"):
+            obj = fixture("simple")
+            obj["title"] = value
+            self.assertEqual([], validate_request(obj), repr(value))
+        for value in ("https://user@example.test/", "https://example.test:99999/", "https://example.test:abc/", "https://example.test/\"x", "https://example.test/'x", "https://example.test/`x"):
+            obj = fixture("simple")
+            obj["links"] = [value]
+            self.assertEqual(["links[0]: must be a valid https URL"], validate_request(obj), value)
         for value in ("👩\u200d💻", "👩\u200d", "a\u200d💻"):
             obj = fixture("simple")
             obj["title"] = value
