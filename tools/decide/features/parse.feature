@@ -48,7 +48,7 @@ Feature: Parse an owner's answer text
   Scenario: question text remains a question after punctuation or invisible text
     Given the reply text is "152: B, ok?<tail>" for each listed tail
     Then it parses as question 152
-    Examples: empty, !, " thanks", U+3164, U+2800, U+034F, U+FE0F
+    Examples: empty, !, " thanks", "\n\nthanks", U+3164, U+2800, U+034F, U+FE0F
 
   Scenario: a trailing zero-width space does not hide a question
     Given the reply text is "152: B?\u200b"
@@ -119,7 +119,3 @@ Feature: Parse an owner's answer text
     Then it parses as ambiguous
     And invisible characters are removed from accepted words
     And numeric reasons and mixed-case approval remain valid
-
-  Scenario: answer words meet the sibling validator contract
-    Given answer words contain invisible or control characters
-    Then accepted words omit invisible characters and controls are ambiguous
