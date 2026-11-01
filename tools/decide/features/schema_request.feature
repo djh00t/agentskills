@@ -17,3 +17,4 @@ Feature: decide request schema
   Scenario: unsafe and invalid request values are rejected
   Scenario: required fields and time boundaries are enforced
   Scenario: normalized text length and UUID boundaries are enforced
+  Scenario: spoofing and review boundaries are rejected
