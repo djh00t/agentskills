@@ -2,7 +2,7 @@
 
 import argparse
 
-from decide_common import DecideError, emit, home_dir
+from decide_common import DecideError, emit, home_dir, parse_item_id
 from decide_store import Store
 
 
@@ -139,7 +139,7 @@ def _list(args):
 
 def register(subparsers):
     status = subparsers.add_parser("status")
-    status.add_argument("id", type=int, nargs="?")
+    status.add_argument("id", type=parse_item_id, nargs="?")
     status.add_argument("--requester")
     status.add_argument("--key")
     status.set_defaults(func=_status)
