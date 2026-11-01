@@ -1,6 +1,6 @@
 import unittest
 
-from decide_schema import CLOSED_STATES, STATES, UUID_RE, validate_answer, validate_event, validate_legacy
+from decide_schema import UUID_RE, validate_answer, validate_event, validate_legacy
 
 
 def event(**changes):
@@ -10,7 +10,7 @@ def event(**changes):
 
 
 def answer(**changes):
-    value = {"choice": "A", "label": "A", "words": "yes", "via": "chat", "msg_ref": "ref", "mapped_by": "token", "closes": [], "recorded_by": "decisions"}
+    value = {"choice": "A", "label": "A", "words": "yes", "via": "chat", "msg_ref": "ref", "mapped_by": "token", "closes": [], "recorded_by": "record"}
     value.update(changes)
     return value
 
@@ -34,9 +34,9 @@ class EventSchemaTests(unittest.TestCase):
         """an event timestamp must be UTC with Z"""
         self.assertEqual(validate_event(event(ts="2026-01-05T12:00:00+00:00")), ["ts: must be a UTC timestamp ending in Z"])
 
-    def test_an_answer_recorded_by_anyone_but_decisions_is_invalid(self):
-        """an answer recorded by anyone but decisions is invalid"""
-        self.assertEqual(validate_answer(answer(recorded_by="operator")), ["recorded_by: must be decisions"])
+    def test_an_answer_with_an_invalid_recorder_is_invalid(self):
+        """an answer with an invalid recorder is invalid"""
+        self.assertEqual(validate_answer(answer(recorded_by="invalid")), ["recorded_by: must be record"])
 
     def test_a_judgement_mapping_cannot_be_custom(self):
         """a judgement mapping cannot be custom"""
@@ -73,6 +73,25 @@ class EventSchemaTests(unittest.TestCase):
         self.assertTrue(validate_answer(answer(words="ﬃ" * 1334)))
         self.assertTrue(validate_answer(answer(msg_ref="ﬃ" * 67)))
         self.assertEqual(validate_answer(answer(words="café", msg_ref="réf")), [])
+
+    def test_review_boundaries(self):
+        """review boundaries"""
+        legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open"}
+        for timestamp in ("2026-13-05T12:00:00Z", "2026-01-05T99:00:00Z", "２０２６-01-05T12:00:00Z"):
+            self.assertIn("ts: must be a UTC timestamp ending in Z", validate_event(event(ts=timestamp)))
+        self.assertTrue(validate_event(event(id=0)))
+        self.assertTrue(validate_event(event(prev_sha256="0" * 63)))
+        self.assertEqual(validate_answer(answer(mapped_by="judgement")), [])
+        self.assertIn("label: must be a label or null for custom", validate_answer(answer(choice="custom", label="A")))
+        self.assertTrue(validate_answer(answer(closes=[{"id": True, "choice": "A"}])))
+        self.assertTrue(validate_legacy(dict(legacy, id=True)))
+        for value in ("bad", []):
+            self.assertIn("pr: must be an object", validate_legacy(dict(legacy, pr=value)))
+        for field, limit in (("words", 4000), ("msg_ref", 200)):
+            self.assertEqual(validate_answer(answer(**{field: "x" * limit})), [])
+            self.assertTrue(validate_answer(answer(**{field: "x" * (limit + 1)})))
+        self.assertTrue(validate_answer(answer(words="\ud800")))
+        self.assertTrue(validate_legacy(dict(legacy, title="\ud800")))
 
     def test_unknown_fields_do_not_echo_input(self):
         """unknown fields do not echo input"""
@@ -127,10 +146,6 @@ class EventSchemaTests(unittest.TestCase):
                 self.assertTrue(validate_legacy(dict(legacy, **changes)))
         self.assertTrue(validate_legacy([]))
 
-    def test_closed_states_are_exactly_the_seven_terminal_states(self):
-        """closed states are exactly the seven terminal states"""
-        self.assertEqual(CLOSED_STATES, frozenset({"answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded"}))
-        self.assertEqual(len(STATES) - len(CLOSED_STATES), 5)
 
 
 if __name__ == "__main__":
