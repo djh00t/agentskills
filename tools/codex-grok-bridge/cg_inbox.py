@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
-import math
 import re
 import sys
 import time
@@ -39,6 +38,8 @@ def inbox(reader, log, conversation_id, limit=100, roles_path=None, now=None, ma
         if not isinstance(page, dict) or not isinstance(page.get("messages"), list) or "next_cursor" not in page:
             raise InboxError("reader returned an invalid page")
         for message in page["messages"]:
+            if isinstance(message, dict) and message.get("sender") != "codex":
+                continue
             seq = message.get("seq") if isinstance(message, dict) else None
             message_id = message.get("id") if isinstance(message, dict) else None
             valid_seq = isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0
@@ -46,8 +47,6 @@ def inbox(reader, log, conversation_id, limit=100, roles_path=None, now=None, ma
             try:
                 if not isinstance(message, dict) or not valid_seq or not valid_id:
                     raise InboxError("message needs a non-negative integer seq and non-empty string id")
-                if message.get("sender") != "codex":
-                    continue
                 if seq in seen_seqs:
                     continue
                 seen_seqs.add(seq)
@@ -57,7 +56,7 @@ def inbox(reader, log, conversation_id, limit=100, roles_path=None, now=None, ma
                 expiry = message.get("expires_at")
                 if expiry is not None and (
                     isinstance(expiry, bool) or not isinstance(expiry, (int, float))
-                    or not 0 <= expiry <= 253402300799 or not math.isfinite(expiry)
+                    or not 0 <= expiry <= 253402300799
                 ):
                     raise InboxError("expires_at must be finite epoch seconds in years 1970 through 9999")
                 role = parsed["to"]

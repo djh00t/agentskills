@@ -121,7 +121,7 @@ class InboxTest(unittest.TestCase):
                 self.assertIn("error", self.run_messages([self.message(1, expiry=expiry)])[0])
 
     def test_bad_messages_do_not_abort(self):
-        bad = [None, {}, self.message(True), self.message(2.7), self.message("3"),
+        bad = [None, {"sender": "codex"}, self.message(True), self.message(2.7), self.message("3"),
                self.message(-1), dict(self.message(4), id=""),
                dict(self.message(5), text="x"*16385), dict(self.message(6), text=None)]
         result = self.run_messages(bad + [self.message(7)])
@@ -129,6 +129,33 @@ class InboxTest(unittest.TestCase):
         self.assertTrue(all(entry["needs_owner"] for entry in result if "error" in entry))
         self.assertTrue(all("expired" in entry for entry in result))
         self.assertTrue(any(entry["seq"] == 7 and "error" not in entry for entry in result))
+
+    def test_limit_and_max_pages_must_be_positive_integers(self):
+        calls = []
+        def reader(*args):
+            calls.append(args)
+            return {"messages": [], "next_cursor": None}
+        for kwargs in [{"limit": 0}, {"limit": -1}, {"limit": 1.5}, {"limit": True}, {"limit": "5"},
+                       {"max_pages": 0}, {"max_pages": -2}, {"max_pages": 2.0}, {"max_pages": False}]:
+            with self.subTest(**kwargs), self.assertRaisesRegex(
+                    cg_inbox.InboxError, "limit and max_pages must be positive integers"):
+                cg_inbox.inbox(reader, self.log, "fixture", **kwargs)
+        self.assertEqual(calls, [])
+
+    def test_conversation_id_reaches_reader(self):
+        calls = []
+        def reader(*args):
+            calls.append(args)
+            return {"messages": [], "next_cursor": "next"} if len(calls) == 1 else {"messages": [], "next_cursor": None}
+        cg_inbox.inbox(reader, self.log, "conv-42", limit=3)
+        self.assertEqual([call[0] for call in calls], ["conv-42", "conv-42"])
+        self.assertEqual([call[2] for call in calls], [3, 3])
+
+    def test_sender_filter_runs_before_validity_checks(self):
+        others = [dict(self.message(1), sender="human", seq="bad"), dict(self.message(2), sender=None, id="")]
+        result = self.run_messages(others + [self.message(3)])
+        self.assertEqual([entry["seq"] for entry in result], [3])
+        self.assertFalse(any("error" in entry for entry in result))
 
     def test_invalid_pages(self):
         for page in [None, [], {}, {"messages": {}}, {"messages": [], "next_cursor": []}]:
