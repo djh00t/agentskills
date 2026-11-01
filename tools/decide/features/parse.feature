@@ -110,6 +110,10 @@ Feature: Parse answer text
     Given the reply text is "approve 7"
     Then it parses as option 7 rec
 
+  Scenario: approval requires a separator
+    Given the reply text is "approve7"
+    Then it parses as ambiguous
+
   Scenario: free text naming one id is custom
     Given the reply text is "40 do the second one but later"
     Then it parses as custom 40
