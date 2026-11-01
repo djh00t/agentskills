@@ -6,8 +6,9 @@ import json
 import sys
 
 from decide_common import DecideError, emit
+import decide_lint
 
-COMMANDS = ()
+COMMANDS = (decide_lint,)
 
 
 def _version(args):
@@ -17,6 +18,7 @@ def _version(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="decide")
+    parser.add_argument("--config", metavar="FILE", default=None)
     parser.add_argument("--json", action="store_true")
     subparsers = parser.add_subparsers(dest="command", required=True)
     version = subparsers.add_parser("version")

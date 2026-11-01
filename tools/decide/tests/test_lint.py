@@ -3,7 +3,7 @@ import time
 
 from decide_lint import GENERIC_PATTERNS
 
-from decide_lint import format_hits, lint_request, scan_text
+from decide_lint import format_hits, iter_text_fields, join_wraps, lint_request, normalize, scan_text
 
 
 class LintFeatureTests(unittest.TestCase):
@@ -104,7 +104,8 @@ class LintFeatureTests(unittest.TestCase):
             patterns[name].search(value)
             self.assertLess(time.monotonic() - start, 0.5, name)
             start = time.monotonic()
-            scan_text(value)
+            with self.assertRaises(Exception):
+                scan_text(value)
             self.assertLess(time.monotonic() - start, 0.5, name + " scan")
 
     def test_pr_numbers_are_not_text(self):
@@ -175,11 +176,12 @@ class LintFeatureTests(unittest.TestCase):
 
     def test_rejects_unknown_types_and_deep_nesting(self):
         """unsupported values and excessive nesting are rejected"""
+        self.assertEqual(lint_request({"value": None}), [])
         for value in ((), set(), b"data", object()):
             with self.subTest(value=type(value)):
                 with self.assertRaises(TypeError):
                     lint_request({"value": value})
-        with self.assertRaises(TypeError):
+        with self.assertRaisesRegex(TypeError, "request keys must be strings"):
             lint_request({1: "safe"})
         value = []
         for _ in range(1200):
@@ -190,6 +192,36 @@ class LintFeatureTests(unittest.TestCase):
         cycle.append(cycle)
         with self.assertRaises(ValueError):
             lint_request(cycle)
+
+    def test_join_wraps_long_spaces_is_fast(self):
+        """long whitespace joins quickly"""
+        start = time.monotonic()
+        self.assertEqual(join_wraps(" " * 32000), " " * 32000)
+        self.assertLess(time.monotonic() - start, 0.5)
+
+    def test_scan_limit_exact_boundary(self):
+        """scan limits accept the exact boundary"""
+        self.assertEqual(len(normalize("a" * 65536)), 65536)
+        self.assertEqual(len(normalize("a" * 65535 + "é")), 65536)
+
+    def test_wrap_trimming_preserves_nonwrap_whitespace(self):
+        """wrap trimming preserves nonwrap whitespace"""
+        self.assertEqual(join_wraps(" a  \n  b "), " ab ")
+        self.assertEqual(join_wraps("a  \\\n  b"), "ab")
+        self.assertEqual(join_wraps("a\n\n b"), "ab")
+        self.assertEqual(join_wraps("a\\\nb"), "ab")
+        self.assertEqual(join_wraps("a\\ \nb"), "a\\b")
+        self.assertEqual(join_wraps("\n\\"), "\\")
+
+    def test_sensitive_key_obeys_depth_limit(self):
+        """sensitive keys obey the depth limit"""
+        token = "gh" + "p_" + "A" * 36
+        value = {token: "safe"}
+        for _ in range(255):
+            value = {"a": value}
+        self.assertEqual(len(lint_request(value)), 1)
+        with self.assertRaisesRegex(ValueError, "request nesting exceeds limit"):
+            next(iter_text_fields({"a": value}))
 
     def test_line_wraps(self):
         """line wraps do not hide secrets"""

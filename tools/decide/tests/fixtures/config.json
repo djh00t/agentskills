@@ -1,0 +1,7 @@
+{"version": 1, "roster_path": "roster.yaml", "reviewer_login": "example-reviewer",
+ "verdict_regex": "^Verdict: (APPROVE|REQUEST_CHANGES)\\Z", "timezone": "Australia/Sydney",
+ "check_times": ["08:00", "12:00", "18:00"],
+ "private_patterns": [{"name": "surname", "regex": "(?i)\\bquuxley\\b"}, {"name": "username", "regex": "\\bzqxuser\\b"}],
+ "mask_rules": [{"name": "account", "regex": "\\bU\\d{4}(\\d{3})\\b", "replace": "U…\\1"}],
+ "page_title": "Example Decisions",
+ "page_summary": "Everything only the owner can do, highest priority first. Status as of {as_of}. {waiting} items waiting. This page is read-only."}
