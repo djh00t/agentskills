@@ -1,63 +1,72 @@
+"""Find common leaks in request text; encoded secrets may not be detected."""
+
 import re
-import argparse
+import unicodedata
 from pathlib import Path
 
 from decide_common import DecideError, EXIT_NOT_FOUND, EXIT_OK, EXIT_VALIDATION, emit
+from decide_config import config_from_args
 
 
 GENERIC_PATTERNS = [
-    ("github_token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b")),
-    ("openai_key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
-    ("aws_key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
-    ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("github_token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b", re.IGNORECASE)),
+    ("openai_key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b", re.IGNORECASE)),
+    ("aws_key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", re.IGNORECASE)),
+    ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----", re.IGNORECASE)),
     (
         "email",
         re.compile(
-            r"[A-Za-z0-9._%+-]+@(?!users\.noreply\.github\.com\b)[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+            r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]++@"
+            r"(?!users\.noreply\.github\.com(?![A-Za-z0-9.-]))"
+            r"(?:[A-Za-z0-9-]++\.)++[A-Za-z]{2,}", re.IGNORECASE
         ),
     ),
     ("home_path", re.compile(r"(?:/U[s]ers/[^/\s]+|/h[o]me/[^/\s]+|~/)")),
     ("pushover_key", re.compile(r"(?is)pushover.{0,40}?\b[a-z0-9]{30}\b")),
-    ("webhook_url", re.compile(r"https?://[^\s]*(?:hooks?|webhook)[^\s]*", re.IGNORECASE)),
+    ("webhook_url", re.compile(r"https?://[^\s]*+", re.IGNORECASE)),
     ("long_number", re.compile(r"(?<![0-9A-Fa-f])\d{9,}(?![0-9A-Fa-f])")),
 ]
 
-TEXT_FIELDS = (
-    "key",
-    "title",
-    "question",
-    "why_owner",
-    "rec_reason",
-    "chat_link",
-    "quote",
-    "bounds.time",
-    "bounds.milestone",
-    "bounds.spend",
-    "links[]",
-    "options[].text",
-    "options[].changes",
-    "pr.trailers[]",
-)
+
+MAX_TEXT = 65536
+
+
+def normalize(text):
+    if len(text) > MAX_TEXT:
+        raise DecideError(EXIT_VALIDATION, "text exceeds the scan limit")
+    text = unicodedata.normalize("NFKC", text)
+    if len(text) > MAX_TEXT:
+        raise DecideError(EXIT_VALIDATION, "text exceeds the scan limit")
+    return "".join(char for char in text if unicodedata.category(char) != "Cf")
 
 
 def scan_text(text):
-    if not text:
-        return []
-    return [name for name, pattern in GENERIC_PATTERNS if pattern.search(text)]
+    text = normalize(text)
+    variants = (text, re.sub(r"\r?\n[ \t]*", "", text))
+    return [
+        name for name, pattern in GENERIC_PATTERNS
+        if any(
+            any("hook" in match.group().lower() for match in pattern.finditer(value))
+            if name == "webhook_url" else pattern.search(value)
+            for value in variants
+        )
+    ]
 
 
 def scan_private(text, cfg):
+    text = normalize(text)
     return [name for name, pattern in cfg.private if pattern.search(text)]
 
 
 def mask_text(text, cfg):
+    text = normalize(text)
     hits = []
     for name, pattern, replacement in cfg.masks:
         if pattern.search(text):
             text = pattern.sub(replacement, text)
             if name not in hits:
                 hits.append(name)
-    for name, pattern in GENERIC_PATTERNS + cfg.private:
+    for name, pattern in GENERIC_PATTERNS + list(cfg.private):
         if pattern.search(text):
             text = pattern.sub("[masked:{}]".format(name), text)
             if name not in hits:
@@ -77,24 +86,31 @@ def mask_obj(obj, cfg):
         if isinstance(value, list):
             return [apply(item) for item in value]
         if isinstance(value, dict):
-            return {key: apply(item) for key, item in value.items()}
+            result = {}
+            for key, item in value.items():
+                masked_key = apply(key)
+                if masked_key in result:
+                    raise DecideError(EXIT_VALIDATION, "masked keys collide")
+                result[masked_key] = apply(item)
+            return result
         return value
     return apply(obj), hits
 
 
 def _lint_files(args):
-    from decide_config import config_from_args
-
     cfg = config_from_args(args)
     results = []
     output = []
     for filename in args.paths:
         path = Path(filename)
+        if path.exists() and not path.is_file():
+            raise DecideError(EXIT_NOT_FOUND, "not a regular file: {}".format(filename))
         try:
             lines = path.read_bytes().decode("utf-8", errors="replace").splitlines()
         except OSError:
             raise DecideError(EXIT_NOT_FOUND, "file not found: {}".format(filename))
         for number, line in enumerate(lines, 1):
+            line = normalize(line)
             for name in scan_text(line) + scan_private(line, cfg):
                 results.append({"path": filename, "line": number, "pattern": name})
                 output.append("{}:{}: {}".format(filename, number, name))
@@ -112,42 +128,22 @@ def register(subparsers):
     parser.set_defaults(func=_lint_files)
 
 
-def iter_text_fields(req):
-    if not isinstance(req, dict):
-        return
+def iter_text_fields(req, path=""):
+    if isinstance(req, str):
+        yield path, req
+    elif isinstance(req, dict):
+        for index, (key, value) in enumerate(req.items()):
+            # Keys are untrusted too; never place a matched value in a report path.
+            label = str(key)
+            key_hits = scan_text(label)
+            child = (path + "." if path else "") + ("[key{}]".format(index) if key_hits else label)
+            if key_hits:
+                yield child, label
+            yield from iter_text_fields(value, child)
+    elif isinstance(req, list):
+        for index, value in enumerate(req):
+            yield from iter_text_fields(value, "{}[{}]".format(path, index))
 
-    for field in TEXT_FIELDS[:7]:
-        value = req.get(field)
-        if isinstance(value, str):
-            yield field, value
-
-    bounds = req.get("bounds")
-    if isinstance(bounds, dict):
-        for field in ("time", "milestone", "spend"):
-            value = bounds.get(field)
-            if isinstance(value, str):
-                yield "bounds." + field, value
-
-    links = req.get("links")
-    if isinstance(links, list):
-        for index, value in enumerate(links):
-            if isinstance(value, str):
-                yield "links[{}]".format(index), value
-
-    options = req.get("options")
-    if isinstance(options, list):
-        for index, option in enumerate(options):
-            if isinstance(option, dict):
-                for field in ("text", "changes"):
-                    value = option.get(field)
-                    if isinstance(value, str):
-                        yield "options[{}].{}".format(index, field), value
-
-    pr = req.get("pr")
-    if isinstance(pr, dict) and isinstance(pr.get("trailers"), list):
-        for index, value in enumerate(pr["trailers"]):
-            if isinstance(value, str):
-                yield "pr.trailers[{}]".format(index), value
 
 
 def lint_request(req):
