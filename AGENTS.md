@@ -6,11 +6,13 @@
 
 ## Operating principles
 
-All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review, evidence rules and incidents. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md wins.
+All agents operate under [PRINCIPLES.md](PRINCIPLES.md): autonomy tiers, hard limits, delegation, peer review, evidence rules and incidents. Where this file and PRINCIPLES.md conflict on authority, PRINCIPLES.md in this repo wins; otherwise, stricter rules apply.
 
 ## Colony
 
-This repo is in the colony (djh00t/colony, roster.yaml `projects`). Rules: PRINCIPLES.md (djh00t/agentskills main) is the floor, then djh00t/colony delegations.yaml and rules/, then this file; stricter wins. Reviewer: Peer Reviewer. Asks for David go via Decisions & Action Items. Colony friction: open a Not working issue in djh00t/colony.
+This repo is part of the maintainer's group of agent projects. Agents in that
+group follow additional rules. For outside contributors, this file and
+PRINCIPLES.md in this repo are the complete rules.
 
 ## Dependency Advisor
 
