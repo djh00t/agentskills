@@ -3,6 +3,7 @@
 import argparse
 
 from decide_common import DecideError, emit, home_dir
+import decide_index
 from decide_store import Store
 
 
@@ -89,7 +90,7 @@ def fold(events):
 
 
 def items(store):
-    return fold(store.read_events())
+    return decide_index.load_items(store)
 
 
 def get_item(store, item_id):
