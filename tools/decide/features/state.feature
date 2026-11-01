@@ -20,4 +20,5 @@ Feature: item state and read commands
   Scenario: stale transitions are refused
   Scenario: illegal transition writes are refused
   Scenario: legacy states must be reachable for the kind
+  Scenario: valid pr_merge legacy states load and set closed_at only when closed
   Scenario: broken logs are refused by reads
