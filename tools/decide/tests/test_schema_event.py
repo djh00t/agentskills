@@ -135,8 +135,10 @@ class EventSchemaTests(unittest.TestCase):
 
     def test_raw_non_printable_text_is_rejected_after_normalization(self):
         """raw non printable text is rejected after normalization"""
-        self.assertEqual(validate_answer(answer(words="a\u00a0")),
-                         ["words: must contain 1 to 4000 non-blank characters"])
+        for value in ("a\u0000", "a\u200b"):
+            self.assertEqual(validate_answer(answer(words=value)),
+                             ["words: must contain 1 to 4000 non-blank characters"])
+        self.assertEqual(validate_answer(answer(words="a\u00a0b")), [])
 
     def test_unknown_fields_do_not_echo_input(self):
         """unknown fields do not echo input"""
