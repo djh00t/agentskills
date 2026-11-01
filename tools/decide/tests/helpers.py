@@ -2,6 +2,9 @@
 
 from contextlib import redirect_stderr, redirect_stdout
 import io
+import atexit
+from pathlib import Path
+import tempfile
 import os
 
 import decide
@@ -23,3 +26,10 @@ def run(argv, env=None):
         os.environ.clear()
         os.environ.update(previous)
     return code, stdout.getvalue(), stderr.getvalue()
+
+
+def temp_home():
+    path = Path(tempfile.mkdtemp())
+    os.chmod(path, 0o700)
+    atexit.register(lambda: __import__("shutil").rmtree(path, ignore_errors=True))
+    return path
