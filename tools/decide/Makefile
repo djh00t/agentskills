@@ -7,7 +7,7 @@ check:
 	$(PYTHON) decide.py --help > /dev/null
 
 mutation:
-	PYTHONDONTWRITEBYTECODE=1 python3 "$$HOME/.codex/artifacts/cos-tools/mutate.py" . decide_schema.py
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m mutmut run
 
 quality-gates: check
 
