@@ -29,4 +29,4 @@ and requests nested more than 256 levels.
 Use `lint-files PATH ...` to scan files with the generic, private, and mask patterns.
 Wrapped private values are detected across adjacent lines.
 
-Private config and roster files must be owned by the current user and have no group or other permissions. Roster paths must remain within the config directory and cannot contain symlinks or `..` components. Text scans reject fields or lines over 65,536 characters. Invalid UTF-8 is replaced during file scans; replacement characters can split a sensitive value and prevent a match. Use valid UTF-8 input.
+Private config and roster files must be owned by the current user and have no group or other permissions. Roster paths must remain within the config directory and cannot contain symlinks or `..` components. Text scans reject fields or lines over 65,536 characters. File scans reject invalid UTF-8 with exit code 2.
