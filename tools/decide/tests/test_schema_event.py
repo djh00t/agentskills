@@ -1,6 +1,6 @@
 import unittest
 
-from decide_schema import CLOSED_STATES, STATES, validate_answer, validate_event, validate_legacy
+from decide_schema import CLOSED_STATES, STATES, UUID_RE, validate_answer, validate_event, validate_legacy
 
 
 def event(**changes):
@@ -60,6 +60,34 @@ class EventSchemaTests(unittest.TestCase):
         """a legacy short head sha is allowed"""
         self.assertEqual(validate_legacy({"id": 1, "kind": "pr_merge", "title": "Legacy", "state": "merged", "pr": {"head_sha": "abcdef0"}}), [])
         self.assertEqual(validate_legacy({"id": 1, "kind": "pr_merge", "title": "Legacy", "state": "merged", "pr": {"head_sha": "abcdef"}}), ["pr.head_sha: must be 7 to 40 lowercase hex characters"])
+
+    def test_free_text_rejects_unsafe_characters_and_uses_normalized_length(self):
+        """free text rejects unsafe characters and uses normalized length"""
+        legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open"}
+        for value in ("line\nfeed", "bidi\u202e", "zero\u200b"):
+            with self.subTest(value=value):
+                self.assertTrue(validate_answer(answer(words=value)))
+                self.assertTrue(validate_answer(answer(msg_ref=value)))
+                self.assertTrue(validate_legacy(dict(legacy, title=value)))
+        self.assertTrue(validate_legacy(dict(legacy, title="   ")))
+        self.assertTrue(validate_answer(answer(words="ﬃ" * 1334)))
+        self.assertTrue(validate_answer(answer(msg_ref="ﬃ" * 67)))
+        self.assertEqual(validate_answer(answer(words="café", msg_ref="réf")), [])
+
+    def test_unknown_fields_do_not_echo_input(self):
+        """unknown fields do not echo input"""
+        for validator, value in ((validate_event, event()), (validate_answer, answer())):
+            value["secret\nforged"] = 1
+            self.assertEqual(validator(value), ["$: unknown field"])
+
+    def test_identifiers_reject_trailing_newlines(self):
+        """identifiers reject trailing newlines"""
+        legacy = {"id": 1, "kind": "simple", "title": "Legacy", "state": "open"}
+        self.assertTrue(validate_event(event(ts="2026-01-05T12:00:00Z\n")))
+        self.assertTrue(validate_event(event(prev_sha256="0" * 64 + "\n")))
+        self.assertIsNone(UUID_RE.match("12345678-1234-1234-1234-123456789abc\n"))
+        self.assertTrue(validate_legacy(dict(legacy, requester="12345678-1234-1234-1234-123456789abc\n")))
+        self.assertTrue(validate_legacy(dict(legacy, pr={"head_sha": "abcdef0\n"})))
 
     def test_closed_states_are_exactly_the_seven_terminal_states(self):
         """closed states are exactly the seven terminal states"""
