@@ -105,7 +105,7 @@ class StoreTests(unittest.TestCase):
         for worker in workers:
             worker.join()
             self.assertEqual(0, worker.exitcode)
-        events = Store(home).read_events()
+        events = [json.loads(line) for line in (home / "events.jsonl").read_bytes().splitlines()]
         self.assertTrue(Store(home).verify()["ok"])
         self.assertEqual(list(range(1, 81)), [event["seq"] for event in events])
 
@@ -126,7 +126,8 @@ class StoreTests(unittest.TestCase):
                 elif kind == "blank":
                     lines.insert(1, b"")
                 else:
-                    event = json.loads(lines[-1]); event["seq"] = 7
+                    event = json.loads(lines[-1])
+                    event["seq"] = 7
                     lines[-1] = json.dumps(event, sort_keys=True, separators=(",", ":")).encode()
                 store.path.write_bytes(b"\n".join(lines) + b"\n")
                 result = store.verify()
@@ -141,7 +142,7 @@ class StoreTests(unittest.TestCase):
 
     def test_verify_rejects_invalid_event_shape(self):
         """verify-log rejects invalid event shape"""
-        for field, value in (("seq", True), ("ts", "junk"), ("type", ""), ("extra", 1), ("id", None)):
+        for field, value in (("seq", True), ("ts", "junk"), ("type", ""), ("type", 5), ("extra", 1), ("id", None)):
             with self.subTest(field=field):
                 store = _three_event_store()
                 lines = store.path.read_bytes().splitlines()
@@ -157,29 +158,158 @@ class StoreTests(unittest.TestCase):
     def test_insecure_store_paths_are_refused(self):
         """insecure store paths are refused"""
         for name in ("events.jsonl", ".lock", "head"):
-            for mode in (0o644, 0o666):
+            for mode in (0o644, 0o666, 0o604):
                 with self.subTest(name=name, mode=mode):
-                    home = temp_home(); path = home / name
-                    path.touch(mode=mode); path.chmod(mode)
+                    home = temp_home()
+                    path = home / name
+                    path.touch(mode=mode)
+                    path.chmod(mode)
                     with self.assertRaises(DecideError):
                         with Store(home).lock() as store:
                             store.append("ask", 1, {})
             with self.subTest(name=name, symlink=True):
-                home = temp_home(); target = home / "target"; target.touch(mode=0o600)
+                home = temp_home()
+                target = home / "target"
+                target.touch(mode=0o600)
                 (home / name).symlink_to(target)
                 with self.assertRaises(DecideError):
                     with Store(home).lock() as store:
                         store.append("ask", 1, {})
-        home = temp_home(); (home / "events.jsonl").mkdir(mode=0o700)
+        home = temp_home()
+        (home / "events.jsonl").mkdir(mode=0o700)
         with self.assertRaises(DecideError):
             Store(home).verify()
-        home = temp_home(); home.chmod(0o705)
+        home = temp_home()
+        home.chmod(0o705)
         with self.assertRaises(DecideError):
             Store(home)
 
+    def test_head_recovery_after_interrupted_append(self):
+        """head recovery after interrupted append"""
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+            old_head = store.head_path.read_bytes()
+            store.append("ask", 2, {})
+            store.head_path.write_bytes(old_head)
+            store.append("ask", 3, {})
+        self.assertTrue(store.verify()["ok"])
+        self.assertEqual(3, store.verify()["events"])
+
+    def test_head_recovery_refuses_more_than_one_event(self):
+        """head recovery refuses more than one event"""
+        store = _three_event_store()
+        store.head_path.write_bytes(json.dumps({"seq": 1, "sha256": hashlib.sha256(store.path.read_bytes().splitlines()[0]).hexdigest()}, sort_keys=True, separators=(",", ":")).encode())
+        with store.lock(), self.assertRaises(DecideError) as caught:
+            store.append("ask", 4, {})
+        self.assertEqual(3, caught.exception.code)
+
+    def test_head_is_atomically_replaced_and_directory_synced(self):
+        """head is atomically replaced and directory synced"""
+        from unittest.mock import patch
+        store = Store(temp_home())
+        real_replace = os.replace
+        real_fsync = os.fsync
+        calls = []
+        def replace(source, target):
+            calls.append("replace")
+            self.assertEqual(store.head_path, target)
+            self.assertTrue(Path(source).is_file())
+            real_replace(source, target)
+        def fsync(fd):
+            calls.append("directory" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file")
+            real_fsync(fd)
+        with patch("decide_store.os.replace", side_effect=replace), patch("decide_store.os.fsync", side_effect=fsync):
+            with store.lock():
+                store.append("ask", 1, {})
+        self.assertEqual(["file", "directory", "file", "replace", "directory"], calls)
+
+    def test_interrupted_head_replace_and_torn_line_recovery(self):
+        """interrupted head replace and torn line recovery"""
+        from unittest.mock import patch
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+            old_head = store.head_path.read_bytes()
+            with patch("decide_store.os.replace", side_effect=OSError("interrupted")):
+                with self.assertRaises(OSError):
+                    store.append("ask", 2, {})
+            self.assertEqual(old_head, store.head_path.read_bytes())
+            store.append("ask", 3, {})
+        with store.path.open("ab") as stream:
+            stream.write(b'{"seq":')
+        self.assertEqual("not JSON", store.verify()["reason"])
+        with store.lock():
+            content = store.path.read_bytes()
+            store.path.write_bytes(content[:content.rfind(b"\n") + 1])
+        self.assertTrue(store.verify()["ok"])
+
+    def test_deep_json_returns_broken_exit_3(self):
+        """deep json returns broken exit 3"""
+        store = Store(temp_home())
+        store.path.write_bytes(b"[" * 200000 + b"\n")
+        store.path.chmod(0o600)
+        _assert_broken(self, store, 1, "not JSON")
+
+    def test_missing_or_changed_head_and_broken_append(self):
+        """missing or changed head and broken append"""
+        for kind in ("missing", "seq"):
+            with self.subTest(kind=kind):
+                store = _three_event_store()
+                if kind == "missing":
+                    store.head_path.unlink()
+                else:
+                    head = json.loads(store.head_path.read_bytes())
+                    head["seq"] += 1
+                    store.head_path.write_text(json.dumps(head, sort_keys=True, separators=(",", ":")))
+                self.assertEqual("head mismatch", store.verify()["reason"])
+                with store.lock(), self.assertRaises(DecideError) as caught:
+                    store.append("ask", 4, {})
+                self.assertEqual(3, caught.exception.code)
+
+    def test_lock_is_not_reentrant(self):
+        """lock is not reentrant"""
+        store = Store(temp_home())
+        for shared in (False, True):
+            with store.lock(shared=shared), self.assertRaises(RuntimeError):
+                with store.lock():
+                    pass
+
+    def test_non_ascii_data_round_trips(self):
+        """non ascii data round trips"""
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {"text": "café 雪"})
+        self.assertEqual("café 雪", json.loads(store.path.read_bytes())["data"]["text"])
+        self.assertTrue(store.verify()["ok"])
+
+    def test_oversized_event_is_refused(self):
+        """oversized event is refused"""
+        store = Store(temp_home())
+        with store.lock(), self.assertRaises(DecideError):
+            store.append("ask", 1, {"text": "x" * 1048576})
+        self.assertTrue(store.verify()["ok"])
+        store.path.write_bytes(b"x" * 1048577 + b"\n")
+        store.path.chmod(0o600)
+        self.assertEqual("line exceeds size limit", store.verify()["reason"])
+
+    def test_shared_lock_does_not_allow_append(self):
+        """shared lock does not allow append"""
+        store = Store(temp_home())
+        with store.lock(shared=True), self.assertRaises(RuntimeError):
+            store.append("ask", 1, {})
+
+    def test_fifo_is_refused(self):
+        """fifo is refused"""
+        store = Store(temp_home())
+        os.mkfifo(store.path, 0o600)
+        with self.assertRaises(DecideError):
+            store.verify()
+
     def test_home_must_be_directory(self):
         """home must be a directory"""
-        home = temp_home() / "file"; home.touch(mode=0o600)
+        home = temp_home() / "file"
+        home.touch(mode=0o600)
         with self.assertRaises(DecideError):
             Store(home)
 
@@ -205,11 +335,17 @@ class StoreTests(unittest.TestCase):
     def test_verify_waits_for_append_lock(self):
         """verify-log waits for the append lock"""
         import threading
-        store = Store(temp_home()); started = threading.Event(); done = threading.Event()
+        store = Store(temp_home())
+        started = threading.Event()
+        done = threading.Event()
         def verify():
-            started.set(); Store(store.home).verify(); done.set()
+            started.set()
+            Store(store.home).verify()
+            done.set()
         with store.lock():
-            thread = threading.Thread(target=verify); thread.start(); started.wait()
+            thread = threading.Thread(target=verify)
+            thread.start()
+            started.wait()
             self.assertFalse(done.wait(0.05))
         thread.join(2)
         self.assertTrue(done.is_set())
