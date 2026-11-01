@@ -1,4 +1,6 @@
 import json
+import re
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import shutil
@@ -119,7 +121,8 @@ class ConfigFeatureTests(unittest.TestCase):
 
     def test_lint_files_requires_config(self):
         """lint-files needs a config"""
-        code, _, _ = run(["lint-files", "input.txt"], env={"DECIDE_CONFIG": ""})
+        with patch.dict("os.environ", {"DECIDE_CONFIG": ""}):
+            code, _, _ = run(["lint-files", "input.txt"])
         self.assertEqual(code, EXIT_ENV)
 
     def test_invalid_config_rules(self):
@@ -133,7 +136,7 @@ class ConfigFeatureTests(unittest.TestCase):
             lambda d: d.update(private_patterns=[{"name": "x", "regex": 9}]),
             lambda d: d.update(mask_rules=[{"name": "x", "regex": "x", "replace": "\\g<8>"}]),
             lambda d: d.update(verdict_regex="["), lambda d: d.update(verdict_regex="abc"),
-            lambda d: d.update(timezone="Invalid/Zone"), lambda d: d.update(check_times=[]),
+            lambda d: d.update(timezone="Invalid/Zone"), lambda d: d.update(timezone="/invalid"), lambda d: d.update(check_times=[]),
             lambda d: d.update(check_times=["12:00", "09:00"]),
             lambda d: d.update(check_times=["25:00"]),
             lambda d: d.update(private_patterns=[{"name": "x", "regex": "x", "extra": True}]),
@@ -258,6 +261,64 @@ class ConfigFeatureTests(unittest.TestCase):
                     mask_text(value, cfg)
                 self.assertEqual(caught.exception.code, 2)
 
+    def test_read_failures_and_type_guards(self):
+        """unreadable private files and invalid types fail closed"""
+        invalid = self.write_config()
+        invalid.write_text("{", encoding="utf-8")
+        with self.assertRaises(Exception) as caught:
+            load_config(invalid)
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+        for error in (OSError("unreadable"), UnicodeError("invalid")):
+            for filename in ("config.json", "roster.yaml"):
+                original = Path.read_text
+                def read(path, *args, **kwargs):
+                    if path.name == filename:
+                        raise error
+                    return original(path, *args, **kwargs)
+                with self.subTest(error=type(error), filename=filename), patch.object(Path, "read_text", read):
+                    with self.assertRaises(Exception) as caught:
+                        load_config(self.config)
+                    self.assertEqual(caught.exception.code, EXIT_ENV)
+        path = self.write_config(lambda d: d.update(roster_path=""))
+        code, _, err = run(["--config", str(path), "lint-files", "x"])
+        self.assertEqual(code, EXIT_ENV)
+        self.assertIn("config: roster_path is invalid", err)
+        for change in (lambda d: d.update(version=True),
+                       lambda d: d.update(check_times="09:00"),
+                       lambda d: d.update(check_times=9),
+                       lambda d: d.update(check_times=[9]),
+                       lambda d: d.update(private_patterns=[9]),
+                       lambda d: d.update(private_patterns=[{"name": 9, "regex": "x"}])):
+            with self.subTest(change=change):
+                with self.assertRaises(Exception) as caught:
+                    load_config(self.write_config(change))
+                self.assertEqual(caught.exception.code, EXIT_ENV)
+
+    def test_mask_collisions_deduplication_and_directory(self):
+        """mask collisions and duplicate hits are handled safely"""
+        cfg = load_config(self.config)
+        with self.assertRaisesRegex(Exception, "masked keys collide"):
+            mask_obj({"Quuxley": 1, "QUUXLEY": 2}, cfg)
+        self.assertEqual(mask_obj(["Quuxley", "Quuxley"], cfg)[1], ["surname"])
+        cfg = replace(cfg, private=(("github_token", re.compile("uniquevalue")),))
+        token = "gh" + "p_" + "A" * 36
+        self.assertEqual(mask_text(token + " uniquevalue", cfg)[1], ["github_token"])
+        with tempfile.TemporaryDirectory() as directory:
+            code, _, err = run(["--config", str(self.config), "lint-files", directory])
+            self.assertEqual(code, 4)
+            self.assertIn("not a regular file", err)
+            code, _, err = run(["--config", str(self.config), "lint-files", str(Path(directory) / "missing")])
+            self.assertEqual(code, 4)
+            self.assertIn("file not found", err)
+
+    def test_roster_name_does_not_cross_entries(self):
+        """roster names do not cross sibling entries"""
+        identifier = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        path = self.write_config(roster="- id: " + identifier + "\nother: value\n  name: misplaced\n")
+        self.assertEqual(load_config(path).roster_names[identifier], identifier)
+        path = self.write_config(roster="- id: " + identifier + "\n\n  other: value\n  name: Correct\n")
+        self.assertEqual(load_config(path).roster_names[identifier], "Correct")
+
     def test_scan_length_limit(self):
         """oversized fields and lines fail closed"""
         with self.assertRaises(Exception) as caught:
@@ -271,9 +332,9 @@ class ConfigFeatureTests(unittest.TestCase):
     def test_normalized_masking_and_json_report(self):
         """normalized values are masked and JSON reports never echo matches"""
         cfg = load_config(self.config)
-        for value in ("Ｑｕｕｘｌｅｙ", "Quu\u200bxley"):
+        for value in ("Ｑｕｕｘｌｅｙ", "Quu\u200bxley", "Quu\ufe0fxley", "Quu\u0301xley"):
             self.assertEqual(mask_text(value, cfg)[0], "[masked:surname]")
-        for value in ("Ｕ１２３４５６７", "U123\u200b4567"):
+        for value in ("Ｕ１２３４５６７", "U123\u200b4567", "U123\ufe0f4567"):
             self.assertEqual(mask_text(value, cfg)[0], "U…567")
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "input"
