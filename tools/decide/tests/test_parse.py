@@ -30,6 +30,34 @@ class ParseTextTests(unittest.TestCase):
             "words": "152: B, move all of them",
         })
 
+    def test_full_width_option_is_normalized(self):
+        """a full-width option is normalized"""
+        text = "152：Ｂ"
+        self.assertEqual(parse_text(text), {
+            "result": "option", "id": 152, "choice": "B", "words": text,
+        })
+
+    def test_invisible_character_is_removed_from_option(self):
+        """an invisible character is removed from an option"""
+        text = "152: B\u200b"
+        self.assertEqual(parse_text(text), {
+            "result": "option", "id": 152, "choice": "B", "words": text,
+        })
+
+    def test_question_id_is_found_after_normalization(self):
+        """a question id is found after normalization"""
+        text = "\u200b152: B?"
+        self.assertEqual(parse_text(text), {
+            "result": "question", "id": 152, "choice": None, "words": text,
+        })
+
+    def test_question_takes_precedence_over_multiple_decisions(self):
+        """a question takes precedence over multiple decisions"""
+        text = "152: B? 153: A"
+        self.assertEqual(parse_text(text), {
+            "result": "question", "id": 152, "choice": None, "words": text,
+        })
+
     def test_question_mark_in_reason_takes_precedence_over_option(self):
         """a question mark in a reason takes precedence over an option"""
         self.assertEqual(parse_text("152: B, is that ok?"), {
@@ -46,7 +74,7 @@ class ParseTextTests(unittest.TestCase):
 
     def test_unicode_question_marks_are_questions_anywhere(self):
         """any supported Unicode question mark anywhere makes the reply a question"""
-        for mark in ("\u037e", "\u061f", "\u2e2e", "\u203d", "\u2048", "\u055e", "\u1367"):
+        for mark in ("\u037e", "\u061f", "\u2e2e", "\u203d", "\u2e18", "\U0001f679", "\U0001f67a", "\U0001f67b", "\u2048", "\u055e", "\u1367"):
             with self.subTest(mark=f"U+{ord(mark):04X}"):
                 self.assertEqual(parse_text(f"152: B, ok{mark}"), {
                     "result": "question", "id": 152, "choice": None,
