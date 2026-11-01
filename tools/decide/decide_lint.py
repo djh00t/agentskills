@@ -34,9 +34,11 @@ MAX_TEXT = 65536
 def normalize(text):
     if len(text) > MAX_TEXT:
         raise DecideError(EXIT_VALIDATION, "text exceeds the scan limit")
+    text = unicodedata.normalize("NFKD", text)
     text = "".join(char for char in text
-                   if unicodedata.category(char) not in {"Cf", "Cn", "Mn", "Me"}
-                   and char not in "\u115f\u1160\u3164\uffa0\u2800")
+                   if unicodedata.category(char) not in {"Cf", "Cn", "Mn", "Me", "Cs"}
+                   and (unicodedata.category(char) != "Cc" or char in "\t\n\r\x85")
+                   and char not in "\u115f\u1160\u2800")
     text = unicodedata.normalize("NFKC", text)
     if len(text) > MAX_TEXT:
         raise DecideError(EXIT_VALIDATION, "text exceeds the scan limit")
