@@ -3,14 +3,13 @@ import re
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 import tempfile
-import time
 import shutil
 import unittest
 from unittest.mock import patch
 
 from decide_common import DecideError, EXIT_ENV
 from decide_config import Config, _secure_file, load_config
-from decide_lint import mask_obj, mask_text, scan_private
+from decide_lint import GENERIC_PATTERNS, _joined_positions, mask_obj, mask_text, scan_private
 from tests.helpers import FIXTURES, run
 
 
@@ -476,15 +475,14 @@ class ConfigFeatureTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertEqual(out.strip(), f"{target}:1: surname\n{target}:3: mask:account")
 
-    def test_lint_long_space_line_is_fast(self):
-        """long space lines are scanned quickly"""
-        import time
+    def test_lint_long_space_line(self):
+        """a long space line is scanned without a match"""
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "input"
             target.write_text("x\n" + " " * 16000, encoding="utf-8")
-            start = time.monotonic()
-            self.assertEqual(run(["--config", str(self.config), "lint-files", str(target)])[0], 0)
-            self.assertLess(time.monotonic() - start, 0.5)
+            with patch("decide_lint._joined_positions", wraps=_joined_positions) as joined:
+                self.assertEqual(run(["--config", str(self.config), "lint-files", str(target)])[0], 0)
+            self.assertLessEqual(sum(len(call.args[0]) for call in joined.call_args_list), 10 * 16002)
 
     def test_review_mask_and_scan_cases(self):
         """mask and scan handle wrapped and repeated matches"""
@@ -498,12 +496,35 @@ class ConfigFeatureTests(unittest.TestCase):
         cfg = replace(cfg, masks=(("zero", re.compile("(?=Q)"), "X"),))
         self.assertEqual(mask_text("a\nQ", cfg), ("a\nQ", []))
 
-    def test_mask_many_short_lines_is_fast(self):
-        """many short lines are masked quickly"""
+    def test_mask_overlapping_pairs_preserves_text(self):
+        """overlapping wrapped matches do not corrupt adjacent text"""
         cfg = load_config(self.config)
-        start = time.monotonic()
-        self.assertEqual(mask_text("a\n" * 32768, cfg), ("a\n" * 32768, []))
-        self.assertLess(time.monotonic() - start, 1.0)
+        self.assertEqual(mask_text("12345\n6789\n12345", cfg),
+                         ("12345\n[masked:long_number]", ["long_number"]))
+        self.assertEqual(mask_text("a\nb\n12345\n6789", cfg),
+                         ("a\nb\n[masked:long_number]", ["long_number"]))
+        cfg = replace(cfg, masks=(("digits", re.compile(r"\d{4}"), "#"),))
+        self.assertEqual(mask_text("57\n441\n2 10", cfg), ("57\n# 10", ["digits"]))
+        self.assertEqual(mask_text("12\n34\nx\n56\n78", cfg), ("#\nx\n#", ["digits"]))
+
+    def test_mask_many_short_lines(self):
+        """pair processing visits a bounded amount of text per rule"""
+        cfg = load_config(self.config)
+        class CountingText(str):
+            splits = 0
+
+            def splitlines(self, keepends=False):
+                self.splits += 1
+                return super().splitlines(keepends=keepends)
+
+        value = CountingText("a\n" * 1024)
+        with patch("decide_lint.normalize", return_value=value), \
+             patch("decide_lint._joined_positions", wraps=_joined_positions) as joined:
+            self.assertEqual(mask_text(value, cfg), (value, []))
+        rule_count = len(cfg.masks) + len(GENERIC_PATTERNS) + len(cfg.private)
+        self.assertLessEqual(value.splits, rule_count)
+        self.assertLessEqual(sum(len(call.args[0]) for call in joined.call_args_list),
+                             3 * len(value) * rule_count)
 
     def test_lint_pair_distinguishes_files_and_patterns(self):
         """wrapped hits are distinct by file and pattern"""
