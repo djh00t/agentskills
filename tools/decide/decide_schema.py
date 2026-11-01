@@ -11,9 +11,7 @@ PRIORITIES = ("P0", "P1", "P2")
 LABELS = ("A", "B", "C", "D")
 REVERSIBLE = ("yes", "no", "partly")
 UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
-SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 STATES = ("open", "ready", "shown", "on_hold", "approved", "answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded")
-CLOSED_STATES = frozenset({"answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded"})
 EVENT_TYPES = ("ask", "transition", "chase", "verify", "answer", "closed_by", "outbox", "outbox_sent", "amend", "import", "page_ack", "counter_floor")
 
 _FIELDS = {
@@ -27,7 +25,7 @@ _PR_FIELDS = {"repo", "number", "head_sha", "base", "merger", "merge_method", "m
 
 def _text_safety(value):
     normalized = unicodedata.normalize("NFKC", value)
-    return normalized, not any(unicodedata.category(char) in ("Cc", "Cf") for char in normalized)
+    return normalized, not any(unicodedata.category(char) in ("Cc", "Cf", "Cs") for char in normalized)
 
 
 def validate_request(obj):
@@ -50,7 +48,7 @@ def validate_request(obj):
             return False
         checked, safe = _text_safety(value)
         if not safe:
-            error(path, "contains control or format characters")
+            error(path, "contains control, format or surrogate characters")
         if strip:
             checked = checked.strip()
         if len(checked) < minimum:
@@ -300,8 +298,13 @@ def validate_event(ev):
         errors.append("{}: is required".format(key))
     if "seq" in ev and (type(ev["seq"]) is not int or ev["seq"] < 1):
         errors.append("seq: must be an integer greater than or equal to 1")
-    if "ts" in ev and (not isinstance(ev["ts"], str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", ev["ts"])):
-        errors.append("ts: must be a UTC timestamp ending in Z")
+    if "ts" in ev:
+        try:
+            if not isinstance(ev["ts"], str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", ev["ts"]):
+                raise ValueError
+            datetime.strptime(ev["ts"], "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            errors.append("ts: must be a UTC timestamp ending in Z")
     if "type" in ev and (not isinstance(ev["type"], str) or ev["type"] not in EVENT_TYPES):
         errors.append("type: must be a known event type")
     if "id" in ev and not (ev["id"] is None and ev.get("type") in ("page_ack", "counter_floor")) and (type(ev["id"]) is not int or ev["id"] < 1):
@@ -327,7 +330,7 @@ def validate_answer(data):
     choice = data.get("choice")
     if "choice" in data and (not isinstance(choice, str) or choice not in LABELS + ("custom",)):
         errors.append("choice: must be a label or custom")
-    if "label" in data and not (data["label"] is None and choice == "custom") and (not isinstance(data["label"], str) or data["label"] not in LABELS):
+    if "label" in data and ((choice == "custom" and data["label"] is not None) or (choice != "custom" and (not isinstance(data["label"], str) or data["label"] not in LABELS))):
         errors.append("label: must be a label or null for custom")
     if isinstance(choice, str) and choice in LABELS and data.get("label") != choice:
         errors.append("label: must match choice")
@@ -362,8 +365,8 @@ def validate_answer(data):
                     seen.add(item["id"])
                 if item.get("choice") not in LABELS:
                     errors.append("{}.choice: must be a label".format(path))
-    if "recorded_by" in data and data["recorded_by"] != "decisions":
-        errors.append("recorded_by: must be decisions")
+    if "recorded_by" in data and data["recorded_by"] != "record":
+        errors.append("recorded_by: must be record")
     return errors
 
 
@@ -391,6 +394,8 @@ def validate_legacy(rec):
     if rec.get("requester") is not None and (not isinstance(rec["requester"], str) or not UUID_RE.fullmatch(rec["requester"])):
         errors.append("requester: must be a UUID")
     pr = rec.get("pr")
-    if isinstance(pr, dict) and "head_sha" in pr and (not isinstance(pr["head_sha"], str) or not re.fullmatch(r"[0-9a-f]{7,40}", pr["head_sha"])):
+    if pr is not None and not isinstance(pr, dict):
+        errors.append("pr: must be an object")
+    elif isinstance(pr, dict) and "head_sha" in pr and (not isinstance(pr["head_sha"], str) or not re.fullmatch(r"[0-9a-f]{7,40}", pr["head_sha"])):
         errors.append("pr.head_sha: must be 7 to 40 lowercase hex characters")
     return errors
