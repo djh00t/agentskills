@@ -124,6 +124,13 @@ class Store:
         with self.lock(shared=True):
             return self._verify_locked()[0]
 
+    def read_events(self):
+        with self.lock(shared=True):
+            result, lines = self._verify_locked()
+            if not result["ok"]:
+                raise DecideError(EXIT_CONFLICT, "cannot read a broken log", result)
+            return [json.loads(line) for line in lines]
+
     def _verify_locked(self):
         content = self._read(self.path) or b""
         lines = content.splitlines()
