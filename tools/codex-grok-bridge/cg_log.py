@@ -166,6 +166,16 @@ class MessageLog:
             cursor = seq
         return cursor
 
+    def snapshot(self) -> tuple[int, frozenset[int]]:
+        """Return a consistent cursor and recorded sequences without writing."""
+        rows = self._migrate(self._read())
+        return self._cursor(rows), frozenset(int(row["seq"]) for row in rows)
+
+    def pending_sequences(self) -> frozenset[int]:
+        """Return received sequences for advisory recovery without writing."""
+        return frozenset(int(row["seq"]) for row in self._read()
+                         if row["state"] == "received")
+
     def cursor(self) -> int:
         """Return the contiguous handled cursor; persist a legacy seed once."""
         lock = self._locked()
