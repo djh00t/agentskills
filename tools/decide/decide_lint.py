@@ -1,4 +1,8 @@
 import re
+import argparse
+from pathlib import Path
+
+from decide_common import DecideError, EXIT_NOT_FOUND, EXIT_OK, EXIT_VALIDATION, emit
 
 
 GENERIC_PATTERNS = [
@@ -40,6 +44,72 @@ def scan_text(text):
     if not text:
         return []
     return [name for name, pattern in GENERIC_PATTERNS if pattern.search(text)]
+
+
+def scan_private(text, cfg):
+    return [name for name, pattern in cfg.private if pattern.search(text)]
+
+
+def mask_text(text, cfg):
+    hits = []
+    for name, pattern, replacement in cfg.masks:
+        if pattern.search(text):
+            text = pattern.sub(replacement, text)
+            if name not in hits:
+                hits.append(name)
+    for name, pattern in GENERIC_PATTERNS + cfg.private:
+        if pattern.search(text):
+            text = pattern.sub("[masked:{}]".format(name), text)
+            if name not in hits:
+                hits.append(name)
+    return text, hits
+
+
+def mask_obj(obj, cfg):
+    hits = []
+    def apply(value):
+        if isinstance(value, str):
+            masked, found = mask_text(value, cfg)
+            for name in found:
+                if name not in hits:
+                    hits.append(name)
+            return masked
+        if isinstance(value, list):
+            return [apply(item) for item in value]
+        if isinstance(value, dict):
+            return {key: apply(item) for key, item in value.items()}
+        return value
+    return apply(obj), hits
+
+
+def _lint_files(args):
+    from decide_config import config_from_args
+
+    cfg = config_from_args(args)
+    results = []
+    output = []
+    for filename in args.paths:
+        path = Path(filename)
+        try:
+            lines = path.read_bytes().decode("utf-8", errors="replace").splitlines()
+        except OSError:
+            raise DecideError(EXIT_NOT_FOUND, "file not found: {}".format(filename))
+        for number, line in enumerate(lines, 1):
+            for name in scan_text(line) + scan_private(line, cfg):
+                results.append({"path": filename, "line": number, "pattern": name})
+                output.append("{}:{}: {}".format(filename, number, name))
+            for name, pattern, _replacement in cfg.masks:
+                if pattern.search(line):
+                    results.append({"path": filename, "line": number, "pattern": "mask:" + name})
+                    output.append("{}:{}: mask:{}".format(filename, number, name))
+    emit(args, results, "\n".join(output))
+    return EXIT_VALIDATION if results else EXIT_OK
+
+
+def register(subparsers):
+    parser = subparsers.add_parser("lint-files")
+    parser.add_argument("paths", nargs="+", metavar="PATH")
+    parser.set_defaults(func=_lint_files)
 
 
 def iter_text_fields(req):
