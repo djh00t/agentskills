@@ -11,3 +11,6 @@ Feature: event, answer and legacy schemas
   Scenario: a legacy record needs only id kind title and state
   Scenario: a legacy short head sha is allowed
   Scenario: closed states are exactly the seven terminal states
+  Scenario: free text rejects unsafe characters and uses normalized length
+  Scenario: unknown fields do not echo input
+  Scenario: identifiers reject trailing newlines
