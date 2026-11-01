@@ -1,4 +1,4 @@
-"""Parse replies in rule order: normalize, question, option, approve, custom, ambiguity."""
+"""Parse replies in rule order: normalize, question, decision-pair ambiguity, option, approve, custom, ambiguity."""
 
 import re
 import unicodedata
@@ -35,7 +35,10 @@ def parse_text(text: str) -> dict:
     ).strip()
     if t == "":
         return _result("ambiguous", text)
-    if t.endswith("?"):
+    if any(
+        "QUESTION" in unicodedata.name(char, "") or char == "\u203d"
+        for char in text
+    ):
         return _result("question", text, _find_id(t))
     if len(_DECISION_PAIR.findall(t)) > 1:
         return _result("ambiguous", text)
