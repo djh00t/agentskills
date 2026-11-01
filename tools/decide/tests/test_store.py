@@ -197,8 +197,10 @@ class StoreTests(unittest.TestCase):
             original(seq, digest)
         with store.lock():
             with patch.object(store, "_write_head", side_effect=fail):
-                event = store.append("ask", 1, {})
-            self.assertEqual(1, event["seq"])
+                with self.assertRaises(DecideError) as caught:
+                    store.append("ask", 1, {})
+            self.assertEqual((5, "event written; head update failed; do not retry"),
+                             (caught.exception.code, caught.exception.message))
             store.append("ask", 2, {})
         self.assertEqual(2, store.verify()["events"])
         self.assertTrue(store.verify()["ok"])
@@ -256,6 +258,7 @@ class StoreTests(unittest.TestCase):
             close.assert_called_once()
 
     def test_configure_failure_closes_descriptor(self):
+        """configure failure closes descriptor"""
         store = Store(temp_home())
         with patch("decide_store.os.set_blocking", side_effect=OSError("failed")), patch("decide_store.os.close", wraps=os.close) as close:
             with self.assertRaises(DecideError) as caught:
@@ -267,6 +270,7 @@ class StoreTests(unittest.TestCase):
                 os.fstat(fd)
 
     def test_event_directory_sync_failure_warns_against_retry(self):
+        """event directory sync failure warns against retry"""
         store = Store(temp_home())
         original = __import__("decide_store")._sync_dir
         calls = 0
@@ -286,6 +290,7 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(2, store.verify()["events"])
 
     def test_write_failure_reports_error(self):
+        """write failure reports error"""
         store = Store(temp_home())
         with store.lock(), patch.object(store, "_write_head", side_effect=OSError("failed")):
             with self.assertRaises(DecideError) as caught:
@@ -340,8 +345,12 @@ class StoreTests(unittest.TestCase):
             store.append("ask", 1, {})
             old_head = store.head_path.read_bytes()
             with patch("decide_store.os.replace", side_effect=OSError("interrupted")):
-                event = store.append("ask", 2, {})
-                self.assertEqual(2, event["seq"])
+                with self.assertRaises(DecideError) as caught:
+                    store.append("ask", 2, {})
+                self.assertEqual((5, "event written; head update failed; do not retry"),
+                                 (caught.exception.code, caught.exception.message))
+            self.assertEqual([], list(store.home.glob(".head-*")))
+            self.assertEqual("head mismatch", store._verify_locked()[0]["reason"])
             self.assertEqual(old_head, store.head_path.read_bytes())
             store.append("ask", 3, {})
         with store.path.open("ab") as stream:
