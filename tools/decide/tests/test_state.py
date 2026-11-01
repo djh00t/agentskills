@@ -15,8 +15,12 @@ def append(store, event_type, item_id, data):
 
 
 def request(kind="simple", key="sample"):
-    return {"kind": kind, "key": key, "requester": "11111111-1111-4111-8111-111111111111",
-            "title": "Sample", "priority": "P1"}
+    from pathlib import Path
+    filename = {"simple": "simple_ok.json", "complex": "complex_ok.json", "pr_merge": "pr_merge_ok.json"}[kind]
+    obj = json.loads((Path(__file__).parent / "fixtures" / "requests" / filename).read_text())
+    obj.pop("cc", None)
+    obj.update(key=key, title="Sample", priority="P1")
+    return obj
 
 
 def asked(store, kind="simple", key="sample", item_id=1):
@@ -25,6 +29,123 @@ def asked(store, kind="simple", key="sample", item_id=1):
 
 
 class StateTests(unittest.TestCase):
+    def test_invalid_payload_and_duplicate_are_refused(self):
+        store = Store(temp_home())
+        append(store, "ask", 1, {"request": {}})
+        with self.assertRaises(DecideError):
+            fold(store.read_events())
+        store = Store(temp_home())
+        asked(store)
+        append(store, "ask", 1, {"request": request()})
+        with self.assertRaises(DecideError):
+            fold(store.read_events())
+
+    def test_stale_transition_is_refused(self):
+        """stale transitions are refused"""
+        store = Store(temp_home())
+        item = asked(store)
+        with store.lock():
+            write_transition(store, item, "answered")
+        with store.lock():
+            with self.assertRaises(DecideError) as caught:
+                write_transition(store, item, "rejected")
+            self.assertEqual(3, caught.exception.code)
+
+    def test_null_page_ack_allows_later_writes(self):
+        """a null page acknowledgement permits later writes"""
+        store = Store(temp_home())
+        append(store, "page_ack", None, {})
+        asked(store)
+        self.assertEqual("ready", get_item(store, 1)["state"])
+
+    def test_read_events_refuses_broken_log(self):
+        """broken logs are refused by reads"""
+        store = Store(temp_home())
+        asked(store)
+        store.path.write_bytes(b"broken\n")
+        with self.assertRaises(DecideError):
+            store.read_events()
+
+    def test_invalid_events_return_conflict_codes(self):
+        event = {"seq": 1, "ts": "2026-01-05T00:00:00Z", "type": "ask", "id": 1, "data": {}, "prev_sha256": "0" * 64}
+        cases = [([{}], "invalid event"), ([event, event], "duplicate item"),
+                 ([dict(event, type="import", data={})], "invalid legacy record"),
+                 ([dict(event, type="import", data={"record": dict(request(), id=2, state="ready")})], "legacy id mismatch")]
+        cases[1] = ([dict(event, data={"request": request()}), dict(event, data={"request": request()})], "duplicate item")
+        for events, message in cases:
+            with self.subTest(message=message), self.assertRaises(DecideError) as caught:
+                fold(events)
+            self.assertEqual(3, caught.exception.code)
+        for event_type, data in [("transition", {"from": "shown", "to": "answered"}), ("answer", {}), ("amend", {"request": {}}), ("amend", {"request": request("pr_merge")})]:
+            store = Store(temp_home())
+            asked(store)
+            append(store, event_type, 1, data)
+            with self.assertRaises(DecideError) as caught:
+                fold(store.read_events())
+            self.assertEqual(3, caught.exception.code)
+        store = Store(temp_home())
+        append(store, "page_ack", 9, {})
+        with self.assertRaises(DecideError):
+            fold(store.read_events())
+
+    def test_invalid_legacy_and_unsafe_titles_fail_cleanly(self):
+        for record in ({"id": 1, "kind": "simple", "state": "ready", "title": "Old"},
+                       dict(request("pr_merge"), id=1, state="approved", pr=dict(request("pr_merge")["pr"], head_sha="abcdef0"))):
+            store = Store(temp_home())
+            append(store, "import", 1, {"record": record})
+            self.assertEqual(3, run(["--home", str(store.home), "list"])[0])
+        for title in ("bad\nrow", "bad\u202erow"):
+            store = Store(temp_home())
+            append(store, "ask", 1, {"request": dict(request(), title=title)})
+            for command in (["list"], ["status", "1"]):
+                self.assertEqual(3, run(["--home", str(store.home)] + command)[0])
+
+    def test_read_accepts_head_one_event_behind(self):
+        store = Store(temp_home())
+        append(store, "page_ack", None, {})
+        previous_head = store.head_path.read_bytes()
+        asked(store)
+        store.head_path.write_bytes(previous_head)
+        self.assertEqual(2, len(store.read_events()))
+        append(store, "counter_floor", None, {})
+        self.assertEqual(3, len(store.read_events()))
+
+    def test_transition_matrix_and_closed_set(self):
+        from decide_schema import KINDS, STATES
+        from decide_state import CLOSED
+        common = {"ready": "shown on_hold withdrawn superseded expired answered rejected", "shown": "answered rejected on_hold withdrawn superseded expired", "on_hold": "ready withdrawn superseded expired"}
+        pr = {"open": "ready on_hold withdrawn superseded expired", "ready": "open shown on_hold withdrawn superseded expired approved answered rejected", "shown": "open approved answered rejected on_hold withdrawn superseded expired", "on_hold": "open withdrawn superseded expired", "approved": "merged merge_failed"}
+        self.assertEqual(set("answered rejected merged merge_failed expired withdrawn superseded".split()), CLOSED)
+        for kind in KINDS:
+            for source in STATES:
+                for target in STATES:
+                    item = {"id": 1, "kind": kind, "state": source}
+                    allowed = target in (pr if kind == "pr_merge" else common).get(source, "").split()
+                    with self.subTest(kind=kind, source=source, target=target):
+                        if allowed:
+                            check_transition(item, target)
+                        else:
+                            with self.assertRaises(DecideError):
+                                check_transition(item, target)
+
+    def test_bad_transitions_and_ids_fail(self):
+        for source, target in [("ready", "merged"), ("shown", "answered")]:
+            store = Store(temp_home())
+            asked(store)
+            append(store, "transition", 1, {"from": source, "to": target})
+            with self.assertRaises(DecideError):
+                fold(store.read_events())
+        for value in [None, "0", "-1", " 1 ", "0_1", "١"]:
+            args = ["status"] + ([] if value is None else [value])
+            self.assertEqual(2, run(args)[0])
+
+    def test_other_schema_event_types_fold(self):
+        store = Store(temp_home())
+        asked(store)
+        for kind in ("closed_by", "outbox", "outbox_sent", "page_ack", "counter_floor"):
+            append(store, kind, None if kind in ("page_ack", "counter_floor") else 1, {})
+        self.assertEqual("ready", get_item(store, 1)["state"])
+
     def test_a_new_simple_item_starts_ready(self):
         """a new simple item starts ready"""
         item = asked(Store(temp_home()))
@@ -79,8 +200,7 @@ class StateTests(unittest.TestCase):
         """fold applies import and timestamp fields"""
         events = [
             {"seq": 1, "ts": "2026-01-05T00:00:00Z", "type": "import", "id": 2,
-             "data": {"record": {"id": 2, "kind": "simple", "state": "ready", "rank": 7,
-                                  "created_at": "2026-01-01T00:00:00Z", "title": "Old", "requester": "11111111-1111-4111-8111-111111111111"}}},
+             "data": {"record": dict(request(), id=2, state="ready", rank=7, created_at="2026-01-01T00:00:00Z", title="Old")}},
             {"seq": 2, "ts": "2026-01-05T00:01:00Z", "type": "transition", "id": 2,
              "data": {"from": "ready", "to": "shown"}},
             {"seq": 3, "ts": "2026-01-05T00:02:00Z", "type": "chase", "id": 2, "data": {}},
@@ -90,6 +210,8 @@ class StateTests(unittest.TestCase):
             {"seq": 6, "ts": "2026-01-05T00:05:00Z", "type": "transition", "id": 2,
              "data": {"from": "shown", "to": "answered"}},
         ]
+        for event in events:
+            event["prev_sha256"] = "0" * 64
         item = fold(events)[2]
         self.assertTrue(item["legacy"])
         self.assertEqual(7, item["rank"])
@@ -103,9 +225,7 @@ class StateTests(unittest.TestCase):
         self.assertNotIn("state", item["request"])
         self.assertNotIn("rank", item["request"])
         imported = fold(events[:1])[2]
-        self.assertEqual({"kind": "simple", "created_at": "2026-01-01T00:00:00Z",
-                          "title": "Old", "requester": "11111111-1111-4111-8111-111111111111"},
-                         imported["request"])
+        self.assertEqual("Old", imported["request"]["title"])
 
     def test_get_item_returns_items_and_reports_missing_ids(self):
         """get_item returns items and reports missing ids"""
@@ -122,14 +242,14 @@ class StateTests(unittest.TestCase):
                  "id": 9, "data": {}, "prev_sha256": "0" * 64}
         with self.assertRaisesRegex(DecideError, "event 1 refers to unknown item 9") as caught:
             fold([event])
-        self.assertEqual(5, caught.exception.code)
+        self.assertEqual(3, caught.exception.code)
 
     def test_status_shows_the_answer_words_once_answered(self):
         """status shows the answer words once answered"""
         home = temp_home()
         store = Store(home)
         asked(store)
-        append(store, "answer", 1, {"choice": "A", "label": "A", "words": "Proceed"})
+        append(store, "answer", 1, {"choice": "A", "label": "A", "words": "Proceed", "via": "card", "msg_ref": "ref", "mapped_by": "token", "closes": [], "recorded_by": "record"})
         code, output, error = run(["--json", "--home", str(home), "status", "1"])
         self.assertEqual((0, ""), (code, error))
         self.assertEqual({"id": 1, "state": "ready", "kind": "simple", "title": "Sample",

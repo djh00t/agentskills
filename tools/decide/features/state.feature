@@ -16,3 +16,6 @@ Feature: item state and read commands
   Scenario: status requires requester and key together
   Scenario: status of a missing item exits 4
   Scenario: list --open hides closed items
+  Scenario: a null page acknowledgement permits later writes
+  Scenario: stale transitions are refused
+  Scenario: broken logs are refused by reads

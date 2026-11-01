@@ -1,6 +1,9 @@
 """Item state transitions, event folding and read commands."""
 
 import argparse
+import re
+
+from decide_schema import validate_event, validate_request, validate_answer, validate_legacy
 
 from decide_common import DecideError, emit, home_dir, parse_item_id
 from decide_store import Store
@@ -34,7 +37,10 @@ def check_transition(item, to_state):
 
 
 def write_transition(store, item, to_state, reason=None, by=None):
-    check_transition(item, to_state)
+    current = fold(store.read_events())[item["id"]]
+    if current["state"] != item["state"]:
+        raise DecideError(3, "stale item state")
+    check_transition(current, to_state)
     data = {"from": item["state"], "to": to_state}
     if reason is not None:
         data["reason"] = reason
@@ -46,31 +52,52 @@ def write_transition(store, item, to_state, reason=None, by=None):
 def fold(events):
     result = {}
     for event in events:
+        errors = validate_event(event)
+        if errors:
+            raise DecideError(3, "invalid event: " + "; ".join(errors))
         event_type = event["type"]
         item_id = event["id"]
         data = event["data"]
         if event_type in ("ask", "import"):
+            if item_id in result:
+                raise DecideError(3, "duplicate item #{}".format(item_id))
             if event_type == "ask":
-                request = data["request"]
+                request = data.get("request")
+                errors = validate_request(request)
+                if errors:
+                    raise DecideError(3, "invalid request: " + "; ".join(errors))
                 item = {"id": item_id, "kind": request["kind"],
                         "state": "open" if request["kind"] == "pr_merge" else "ready",
                         "request": request, "created_at": event["ts"], "updated_at": event["ts"],
                         "closed_at": None, "last_shown_at": None, "verify": None,
                         "answer": None, "legacy": False, "rank": None}
             else:
-                record = data["record"]
+                record = data.get("record")
+                errors = validate_legacy(record)
+                if errors:
+                    raise DecideError(3, "invalid legacy record: " + "; ".join(errors))
+                if record["id"] != item_id:
+                    raise DecideError(3, "legacy id mismatch")
+                request = {key: value for key, value in record.items() if key not in ("id", "state", "rank", "created_at")}
+                errors = validate_request(request)
+                if errors:
+                    raise DecideError(3, "invalid legacy request: " + "; ".join(errors))
                 item = {"id": item_id, "kind": record["kind"], "state": record["state"],
-                        "request": {key: value for key, value in record.items()
-                                    if key not in ("id", "state", "rank")},
-                        "created_at": record["created_at"], "updated_at": record["created_at"],
+                        "request": request,
+                        "created_at": record.get("created_at", event["ts"]), "updated_at": record.get("created_at", event["ts"]),
                         "closed_at": None, "last_shown_at": None, "verify": None,
-                        "answer": None, "legacy": True, "rank": record["rank"]}
+                        "answer": None, "legacy": True, "rank": record.get("rank")}
             result[item_id] = item
             continue
+        if event_type in ("page_ack", "counter_floor") and item_id is None:
+            continue
         if item_id not in result:
-            raise DecideError(5, "event {} refers to unknown item {}".format(event["seq"], item_id))
+            raise DecideError(3, "event {} refers to unknown item {}".format(event["seq"], item_id))
         item = result[item_id]
         if event_type == "transition":
+            if data.get("from") != item["state"] or not isinstance(data.get("to"), str):
+                raise DecideError(3, "invalid transition")
+            check_transition(item, data["to"])
             item["state"] = data["to"]
             item["updated_at"] = event["ts"]
             if data["to"] in CLOSED:
@@ -82,9 +109,16 @@ def fold(events):
         elif event_type == "verify":
             item["verify"] = data
         elif event_type == "answer":
+            errors = validate_answer(data)
+            if errors:
+                raise DecideError(3, "invalid answer: " + "; ".join(errors))
             item["answer"] = data
         elif event_type == "amend":
-            item["request"] = data["request"]
+            request = data.get("request")
+            errors = validate_request(request)
+            if errors or request["kind"] != item["kind"]:
+                raise DecideError(3, "invalid amended request")
+            item["request"] = request
     return result
 
 
@@ -100,10 +134,13 @@ def get_item(store, item_id):
 
 
 def _status(args):
-    current = items(Store(home_dir(args)))
     if (args.requester is None) != (args.key is None):
         raise DecideError(2, "status requires both requester and key")
+    if args.id is None and args.requester is None or args.id is not None and args.requester is not None:
+        raise DecideError(2, "status requires an id or requester and key")
+    store = Store(home_dir(args))
     if args.requester is not None:
+        current = items(store)
         found = next((item for item in current.values()
                       if item["request"].get("requester") == args.requester
                       and item["request"].get("key") == args.key), None)
@@ -111,9 +148,7 @@ def _status(args):
             raise DecideError(4, "no item for requester and key")
         item = found
     else:
-        item = current.get(args.id)
-        if item is None:
-            raise DecideError(4, "no item #{}".format(args.id))
+        item = get_item(store, args.id)
     answer = item["answer"]
     summary = {"id": item["id"], "state": item["state"], "kind": item["kind"],
                "title": item["request"].get("title"),
@@ -135,6 +170,12 @@ def _list(args):
     emit(args, output, "\n".join("#{} {} {} {}".format(row["id"], row["state"], row["priority"], row["title"])
                                   for row in output))
     return 0
+
+
+def positive_id(value):
+    if not re.fullmatch(r"[1-9][0-9]*", value):
+        raise argparse.ArgumentTypeError("id must be a positive decimal integer")
+    return int(value)
 
 
 def register(subparsers):

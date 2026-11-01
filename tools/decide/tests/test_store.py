@@ -350,6 +350,126 @@ class StoreTests(unittest.TestCase):
         thread.join(2)
         self.assertTrue(done.is_set())
 
+    def test_exact_size_limit_is_accepted(self):
+        store = Store(temp_home())
+        with store.lock():
+            event = store.append("ask", 1, {"text": ""})
+            size = len(store.path.read_bytes().rstrip(b"\n"))
+            store.append("ask", 2, {"text": "x" * (1048576 - size)})
+        self.assertEqual(1048576, len(store.path.read_bytes().splitlines()[1]))
+        self.assertTrue(store.verify()["ok"])
+
+    def test_other_execute_permission_is_refused(self):
+        home = temp_home()
+        home.chmod(0o701)
+        with self.assertRaises(DecideError):
+            Store(home)
+        home.chmod(0o700)
+        (home / ".lock").touch(mode=0o601)
+        (home / ".lock").chmod(0o601)
+        with self.assertRaises(DecideError):
+            with Store(home).lock():
+                pass
+
+    def test_single_event_head_recovery_for_read_and_append(self):
+        from unittest.mock import patch
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+            empty_head = json.dumps({"seq": 0, "sha256": ZERO_HASH}, sort_keys=True, separators=(",", ":")).encode()
+            store.head_path.write_bytes(empty_head)
+            self.assertEqual(1, len(store.read_events()))
+            with patch.object(store, "_write_head", wraps=store._write_head) as write_head:
+                store.append("ask", 2, {})
+            self.assertEqual((1, hashlib.sha256(store.path.read_bytes().splitlines()[0]).hexdigest()), write_head.call_args_list[0].args)
+        self.assertTrue(store.verify()["ok"])
+
+    def test_broken_empty_log_with_head_is_not_recovered(self):
+        store = Store(temp_home())
+        store.head_path.write_bytes(b"bad")
+        store.head_path.chmod(0o600)
+        with self.assertRaises(DecideError):
+            store.read_events()
+        with store.lock(), self.assertRaises(DecideError):
+            store.append("ask", 1, {})
+
+    def test_existing_file_append_does_not_sync_creation(self):
+        from unittest.mock import patch
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+            with patch("decide_store._sync_dir") as sync:
+                store.append("ask", 2, {})
+        self.assertEqual(1, sync.call_count)
+
+    def test_reads_acquire_shared_locks(self):
+        from unittest.mock import patch
+        import fcntl
+        store = Store(temp_home())
+        with patch("decide_store.fcntl.flock", wraps=fcntl.flock) as flock:
+            store.verify()
+            store.read_events()
+        self.assertEqual([fcntl.LOCK_SH, fcntl.LOCK_UN] * 2, [call.args[1] for call in flock.call_args_list])
+
+    def test_lock_release_revokes_append_authority(self):
+        store = Store(temp_home())
+        with store.lock():
+            pass
+        with self.assertRaises(RuntimeError):
+            store.append("ask", 1, {})
+
+    def test_verification_rejects_ascii_escaped_unicode(self):
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {"text": "雪"})
+        event = json.loads(store.path.read_bytes())
+        store.path.write_text(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n")
+        self.assertEqual("not canonical", store.verify()["reason"])
+
+    def test_recovery_does_not_accept_invalid_event_with_prior_head(self):
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+            prior_head = store.head_path.read_bytes()
+            store.append("ask", 2, {})
+            lines = store.path.read_bytes().splitlines()
+            lines[-1] = b"{}"
+            store.path.write_bytes(b"\n".join(lines) + b"\n")
+            store.head_path.write_bytes(prior_head)
+            with self.assertRaises(DecideError):
+                store.read_events()
+            with self.assertRaises(DecideError):
+                store.append("ask", 3, {})
+
+    def test_recovery_writes_hash_of_last_event(self):
+        from unittest.mock import patch
+        store = _three_event_store()
+        lines = store.path.read_bytes().splitlines()
+        prior_head = {"seq": 2, "sha256": hashlib.sha256(lines[1]).hexdigest()}
+        store.head_path.write_text(json.dumps(prior_head, sort_keys=True, separators=(",", ":")))
+        with store.lock(), patch.object(store, "_write_head", wraps=store._write_head) as write_head:
+            store.append("ask", 4, {})
+        self.assertEqual((3, hashlib.sha256(lines[2]).hexdigest()), write_head.call_args_list[0].args)
+
+    def test_verification_rejects_unsorted_event_keys(self):
+        store = Store(temp_home())
+        with store.lock():
+            store.append("ask", 1, {})
+        event = json.loads(store.path.read_bytes())
+        raw = json.dumps(dict(reversed(list(event.items()))), separators=(",", ":"), ensure_ascii=False).encode()
+        store.path.write_bytes(raw + b"\n")
+        store.head_path.write_text(json.dumps({"seq": 1, "sha256": hashlib.sha256(raw).hexdigest()}, sort_keys=True, separators=(",", ":")))
+        self.assertEqual("not canonical", store.verify()["reason"])
+
+    def test_opened_store_file_is_blocking(self):
+        from decide_store import _secure_open
+        home = temp_home()
+        fd = _secure_open(home / "file", os.O_CREAT | os.O_RDWR)
+        try:
+            self.assertTrue(os.get_blocking(fd))
+        finally:
+            os.close(fd)
+
 
 def _three_event_store():
     store = Store(temp_home())

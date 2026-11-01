@@ -125,11 +125,22 @@ class Store:
             return self._verify_locked()[0]
 
     def read_events(self):
+        if self._owner == threading.get_ident():
+            return self._read_events_locked()
         with self.lock(shared=True):
-            result, lines = self._verify_locked()
-            if not result["ok"]:
-                raise DecideError(EXIT_CONFLICT, "cannot read a broken log", result)
-            return [json.loads(line) for line in lines]
+            return self._read_events_locked()
+
+    def _read_events_locked(self):
+        result, lines = self._verify_locked()
+        if result["reason"] == "head mismatch" and lines:
+            previous_hash = hashlib.sha256(lines[-2]).hexdigest() if len(lines) > 1 else ZERO_HASH
+            prior_head = json.dumps({"seq": len(lines) - 1, "sha256": previous_hash},
+                                    sort_keys=True, separators=(",", ":")).encode()
+            if self._read(self.head_path) == prior_head:
+                return [json.loads(line) for line in lines]
+        if not result["ok"]:
+            raise DecideError(EXIT_CONFLICT, "cannot read a broken log", result)
+        return [json.loads(line) for line in lines]
 
     def _verify_locked(self):
         content = self._read(self.path) or b""

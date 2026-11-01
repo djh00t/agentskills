@@ -4,6 +4,10 @@
 Use `verify-log` to check the stored event chain. It detects accidental damage and edits that leave the head unchanged. It is not a security boundary against the store user, who can rewrite both files.
 A missing or inconsistent head is reported as a broken log. Under the exclusive lock, append advances a head that is exactly one valid event behind. If the final line is torn (no final newline and not valid JSON), stop all writers, preserve a copy of both files, and cut only the incomplete bytes after the last newline when the remaining log matches the head. Run `verify-log` before resuming. A missing head requires recovery from a trusted copy. Each event line is limited to 1 MiB.
 
+## Read commands
+
+Use `status ID` to show an item, or `status --requester UUID --key KEY` to find it by requester and key. Use `list` to show items, `list --open` to omit closed items, and `list --requester UUID` to filter by requester. Both commands support the global `--json` option. A missing item returns exit code 4; an invalid argument returns 2, a broken log returns 3, and an unavailable store returns 5. Reads accept a valid log whose head is exactly one event behind; the next append repairs the head.
+
 ## Exit codes
 
 - `0`: success
