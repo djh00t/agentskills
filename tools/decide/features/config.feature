@@ -31,6 +31,8 @@ Feature: Private configuration and file masking
   Scenario: unsupported roster id entries are rejected
   Scenario: wrapped file values report their first line
   Scenario: mask and scan handle wrapped and repeated matches
-  Scenario: many short lines are masked quickly
+  Scenario: overlapping wrapped matches do not corrupt adjacent text
+  Scenario: pair processing visits a bounded amount of text per rule
+  Scenario: a long space line is scanned without a match
   Scenario: wrapped hits are distinct by file and pattern
   Scenario: invalid UTF-8 in a lint file fails cleanly
