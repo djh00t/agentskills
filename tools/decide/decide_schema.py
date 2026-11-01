@@ -2,13 +2,14 @@
 
 from datetime import datetime
 import re
+import unicodedata
 
 
 KINDS = ("simple", "complex", "pr_merge")
 PRIORITIES = ("P0", "P1", "P2")
 LABELS = ("A", "B", "C", "D")
 REVERSIBLE = ("yes", "no", "partly")
-UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 STATES = ("open", "ready", "shown", "on_hold", "approved", "answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded")
 CLOSED_STATES = frozenset({"answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded"})
@@ -256,6 +257,15 @@ def validate_request(obj):
     return errors
 
 
+def _safe_text(value, maximum=None):
+    if not isinstance(value, str):
+        return False
+    normalized = unicodedata.normalize("NFKC", value)
+    return (bool(normalized.strip())
+            and (maximum is None or len(normalized) <= maximum)
+            and not any(unicodedata.category(char) in ("Cc", "Cf") for char in normalized))
+
+
 def validate_event(ev):
     """Return every schema error found in an event envelope."""
     errors = []
@@ -264,7 +274,7 @@ def validate_event(ev):
         return ["$: must be an object"]
     for key in ev:
         if key not in fields:
-            errors.append("{}: unknown field".format(key))
+            errors.append("$: unknown field")
     for key in fields - set(ev):
         errors.append("{}: is required".format(key))
     if "seq" in ev and (type(ev["seq"]) is not int or ev["seq"] < 1):
@@ -290,7 +300,7 @@ def validate_answer(data):
         return ["$: must be an object"]
     for key in data:
         if key not in fields:
-            errors.append("{}: unknown field".format(key))
+            errors.append("$: unknown field")
     for key in fields - set(data):
         errors.append("{}: is required".format(key))
     choice = data.get("choice")
@@ -300,11 +310,11 @@ def validate_answer(data):
         errors.append("label: must be a label or null for custom")
     if isinstance(choice, str) and choice in LABELS and data.get("label") != choice:
         errors.append("label: must match choice")
-    if "words" in data and (not isinstance(data["words"], str) or not 1 <= len(data["words"]) <= 4000 or not data["words"].strip()):
+    if "words" in data and (not _safe_text(data["words"], 4000)):
         errors.append("words: must contain 1 to 4000 non-blank characters")
     if "via" in data and data["via"] not in ("card", "chat"):
         errors.append("via: must be card or chat")
-    if "msg_ref" in data and (not isinstance(data["msg_ref"], str) or not 1 <= len(data["msg_ref"]) <= 200):
+    if "msg_ref" in data and (not _safe_text(data["msg_ref"], 200)):
         errors.append("msg_ref: must contain 1 to 200 characters")
     if "mapped_by" in data and data["mapped_by"] not in ("token", "judgement"):
         errors.append("mapped_by: must be token or judgement")
@@ -351,7 +361,7 @@ def validate_legacy(rec):
         errors.append("kind: must be a known kind")
     if "title" not in rec:
         errors.append("title: is required")
-    elif not isinstance(rec["title"], str) or not rec["title"]:
+    elif not _safe_text(rec["title"]):
         errors.append("title: must be a non-empty string")
     if "state" not in rec:
         errors.append("state: is required")
