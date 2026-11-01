@@ -10,6 +10,9 @@ LABELS = ("A", "B", "C", "D")
 REVERSIBLE = ("yes", "no", "partly")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+STATES = ("open", "ready", "shown", "on_hold", "approved", "answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded")
+CLOSED_STATES = frozenset({"answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded"})
+EVENT_TYPES = ("ask", "transition", "chase", "verify", "answer", "closed_by", "outbox", "outbox_sent", "amend", "import", "page_ack", "counter_floor")
 
 _FIELDS = {
     "key", "requester", "kind", "title", "question", "why_owner", "options",
@@ -250,4 +253,113 @@ def validate_request(obj):
                             error("pr.trailers[{}]".format(i), "must be a string")
                         elif len(item) > 100:
                             error("pr.trailers[{}]".format(i), "longer than 100 characters")
+    return errors
+
+
+def validate_event(ev):
+    """Return every schema error found in an event envelope."""
+    errors = []
+    fields = {"seq", "ts", "type", "id", "data", "prev_sha256"}
+    if not isinstance(ev, dict):
+        return ["$: must be an object"]
+    for key in ev:
+        if key not in fields:
+            errors.append("{}: unknown field".format(key))
+    for key in fields - set(ev):
+        errors.append("{}: is required".format(key))
+    if "seq" in ev and (type(ev["seq"]) is not int or ev["seq"] < 1):
+        errors.append("seq: must be an integer greater than or equal to 1")
+    if "ts" in ev and (not isinstance(ev["ts"], str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", ev["ts"])):
+        errors.append("ts: must be a UTC timestamp ending in Z")
+    if "type" in ev and (not isinstance(ev["type"], str) or ev["type"] not in EVENT_TYPES):
+        errors.append("type: must be a known event type")
+    if "id" in ev and not (ev["id"] is None and ev.get("type") in ("page_ack", "counter_floor")) and (type(ev["id"]) is not int or ev["id"] < 1):
+        errors.append("id: must be a positive integer or null for page_ack/counter_floor")
+    if "data" in ev and not isinstance(ev["data"], dict):
+        errors.append("data: must be an object")
+    if "prev_sha256" in ev and (not isinstance(ev["prev_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", ev["prev_sha256"])):
+        errors.append("prev_sha256: must be 64 lowercase hex characters")
+    return errors
+
+
+def validate_answer(data):
+    """Return every schema error found in an answer payload."""
+    errors = []
+    fields = {"choice", "label", "words", "via", "msg_ref", "mapped_by", "closes", "recorded_by"}
+    if not isinstance(data, dict):
+        return ["$: must be an object"]
+    for key in data:
+        if key not in fields:
+            errors.append("{}: unknown field".format(key))
+    for key in fields - set(data):
+        errors.append("{}: is required".format(key))
+    choice = data.get("choice")
+    if "choice" in data and (not isinstance(choice, str) or choice not in LABELS + ("custom",)):
+        errors.append("choice: must be a label or custom")
+    if "label" in data and not (data["label"] is None and choice == "custom") and (not isinstance(data["label"], str) or data["label"] not in LABELS):
+        errors.append("label: must be a label or null for custom")
+    if isinstance(choice, str) and choice in LABELS and data.get("label") != choice:
+        errors.append("label: must match choice")
+    if "words" in data and (not isinstance(data["words"], str) or not 1 <= len(data["words"]) <= 4000 or not data["words"].strip()):
+        errors.append("words: must contain 1 to 4000 non-blank characters")
+    if "via" in data and data["via"] not in ("card", "chat"):
+        errors.append("via: must be card or chat")
+    if "msg_ref" in data and (not isinstance(data["msg_ref"], str) or not 1 <= len(data["msg_ref"]) <= 200):
+        errors.append("msg_ref: must contain 1 to 200 characters")
+    if "mapped_by" in data and data["mapped_by"] not in ("token", "judgement"):
+        errors.append("mapped_by: must be token or judgement")
+    if data.get("mapped_by") == "judgement" and choice == "custom":
+        errors.append("mapped_by: judgement cannot map custom")
+    closes = data.get("closes")
+    if "closes" in data:
+        if not isinstance(closes, list):
+            errors.append("closes: must be a list")
+        else:
+            seen = set()
+            for i, item in enumerate(closes):
+                path = "closes[{}]".format(i)
+                if not isinstance(item, dict):
+                    errors.append("{}: must be an object".format(path))
+                    continue
+                if set(item) != {"id", "choice"}:
+                    errors.append("{}: must contain only id and choice".format(path))
+                if type(item.get("id")) is not int or item["id"] < 1:
+                    errors.append("{}.id: must be a positive integer".format(path))
+                elif item["id"] in seen:
+                    errors.append("{}.id: must be distinct".format(path))
+                else:
+                    seen.add(item["id"])
+                if item.get("choice") not in LABELS:
+                    errors.append("{}.choice: must be a label".format(path))
+    if "recorded_by" in data and data["recorded_by"] != "decisions":
+        errors.append("recorded_by: must be decisions")
+    return errors
+
+
+def validate_legacy(rec):
+    """Return every schema error found in an imported legacy record."""
+    errors = []
+    if not isinstance(rec, dict):
+        return ["$: must be an object"]
+    if "id" not in rec:
+        errors.append("id: is required")
+    elif type(rec["id"]) is not int or rec["id"] < 1:
+        errors.append("id: must be an integer greater than or equal to 1")
+    if "kind" not in rec:
+        errors.append("kind: is required")
+    elif rec["kind"] not in KINDS:
+        errors.append("kind: must be a known kind")
+    if "title" not in rec:
+        errors.append("title: is required")
+    elif not isinstance(rec["title"], str) or not rec["title"]:
+        errors.append("title: must be a non-empty string")
+    if "state" not in rec:
+        errors.append("state: is required")
+    elif rec["state"] not in STATES:
+        errors.append("state: must be a known state")
+    if rec.get("requester") is not None and (not isinstance(rec["requester"], str) or not UUID_RE.fullmatch(rec["requester"])):
+        errors.append("requester: must be a UUID")
+    pr = rec.get("pr")
+    if isinstance(pr, dict) and "head_sha" in pr and (not isinstance(pr["head_sha"], str) or not re.fullmatch(r"[0-9a-f]{7,40}", pr["head_sha"])):
+        errors.append("pr.head_sha: must be 7 to 40 lowercase hex characters")
     return errors
