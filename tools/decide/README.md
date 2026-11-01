@@ -1,13 +1,14 @@
 # decide
 
 `decide` is a deterministic queue for questions that only a human owner can answer.
-Use `verify-log` to check the stored event chain. It detects partial edits and truncation, but a writer who can rewrite both the log and its head can forge a new chain.
-A missing or incomplete head is reported as a broken log; restore the log and head together from a trusted backup.
+Use `verify-log` to check the stored event chain. It detects accidental damage and edits that leave the head unchanged. It is not a security boundary against the store user, who can rewrite both files.
+A missing or inconsistent head is reported as a broken log. Under the exclusive lock, append advances a head that is exactly one valid event behind. If the final line is torn (no final newline and not valid JSON), stop all writers, preserve a copy of both files, and cut only the incomplete bytes after the last newline when the remaining log matches the head. Run `verify-log` before resuming. A missing head requires recovery from a trusted copy. Each event line is limited to 1 MiB.
 
 ## Exit codes
 
 - `0`: success
 - `2`: validation error or command usage error
+- `3`: broken log or conflicting store operation
 
 ## Global options
 
