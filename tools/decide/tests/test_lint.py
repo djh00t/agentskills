@@ -194,22 +194,27 @@ class LintFeatureTests(unittest.TestCase):
             lint_request(cycle)
 
     def test_join_wraps_long_spaces_is_fast(self):
+        """long whitespace joins quickly"""
         start = time.monotonic()
         self.assertEqual(join_wraps(" " * 32000), " " * 32000)
         self.assertLess(time.monotonic() - start, 0.5)
 
     def test_scan_limit_exact_boundary(self):
+        """scan limits accept the exact boundary"""
         self.assertEqual(len(normalize("a" * 65536)), 65536)
         self.assertEqual(len(normalize("a" * 65535 + "é")), 65536)
 
     def test_wrap_trimming_preserves_nonwrap_whitespace(self):
+        """wrap trimming preserves nonwrap whitespace"""
         self.assertEqual(join_wraps(" a  \n  b "), " ab ")
         self.assertEqual(join_wraps("a  \\\n  b"), "ab")
         self.assertEqual(join_wraps("a\n\n b"), "ab")
         self.assertEqual(join_wraps("a\\\nb"), "ab")
+        self.assertEqual(join_wraps("a\\ \nb"), "a\\b")
         self.assertEqual(join_wraps("\n\\"), "\\")
 
     def test_sensitive_key_obeys_depth_limit(self):
+        """sensitive keys obey the depth limit"""
         token = "gh" + "p_" + "A" * 36
         value = {token: "safe"}
         for _ in range(255):
