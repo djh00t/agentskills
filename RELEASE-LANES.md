@@ -131,6 +131,8 @@ Until it exists, the author and Peer Reviewer apply the rules by hand.
 
 ## 5. Soak and promotion signals
 
+Soaks are currently skipped until the first real user (owner decision, 1 November 2026).
+
 The gate that exists today: local gates and CI green, Flux reports Ready and
 its health checks pass within the project's rollout deadline, and a read-only
 smoke check passes. Prod checks are read-only smoke only, because an
