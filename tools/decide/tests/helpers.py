@@ -3,8 +3,12 @@
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import os
+from pathlib import Path
 
 import decide
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def run(argv, env=None):
