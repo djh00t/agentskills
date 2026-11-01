@@ -50,12 +50,12 @@ def _joined_positions(text):
     positions = []
     start = 0
     after_break = False
-    for match in re.finditer(r"\r\n|[\r\n\x85\u2028\u2029]", text):
+    for match in re.finditer(r"[\r\n\x85\u2028\u2029]", text):
         end = match.start()
         if after_break:
             start = end - len(text[start:end].lstrip(" \t"))
         end = start + len(text[start:end].rstrip(" \t"))
-        if end > start and text[end - 1] == "\\":
+        if end == match.start() and end > start and text[end - 1] == "\\":
             end -= 1
             end = start + len(text[start:end].rstrip(" \t"))
         parts.append(text[start:end])
@@ -99,7 +99,7 @@ def mask_text(text, cfg):
     for name, pattern, replacement in rules:
         def substitute(value, positions=None, offset=0):
             nonlocal text
-            matches = list(pattern.finditer(value))
+            matches = [match for match in pattern.finditer(value) if match.start() != match.end()]
             for match in reversed(matches):
                 result = match.expand(replacement) if replacement is not None else "[masked:{}]".format(name)
                 if replacement is not None and match.group() in result:
@@ -123,7 +123,6 @@ def mask_text(text, cfg):
         for index in range(len(lines) - 2, -1, -1):
             value, positions = _joined_positions(lines[index] + lines[index + 1])
             substitute(value, positions, offsets[index])
-            lines = text.splitlines(keepends=True)
         value, positions = _joined_positions(text)
         substitute(value, positions)
     return text, hits
@@ -161,7 +160,9 @@ def _lint_files(args):
         if path.exists() and not path.is_file():
             raise DecideError(EXIT_NOT_FOUND, "not a regular file: {}".format(filename))
         try:
-            lines = path.read_bytes().decode("utf-8", errors="replace").splitlines()
+            lines = path.read_bytes().decode("utf-8").splitlines()
+        except UnicodeDecodeError:
+            raise DecideError(EXIT_VALIDATION, "invalid UTF-8: {}".format(filename))
         except OSError:
             raise DecideError(EXIT_NOT_FOUND, "file not found: {}".format(filename))
         for number, line in enumerate(lines, 1):
