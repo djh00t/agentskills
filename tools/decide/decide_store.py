@@ -4,113 +4,156 @@ import fcntl
 import hashlib
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import stat
+import threading
 
 from decide_common import DecideError, EXIT_CONFLICT, EXIT_ENV, emit, home_dir, iso_z, utc_now
 
-
 ZERO_HASH = "0" * 64
+KEYS = {"seq", "ts", "type", "id", "data", "prev_sha256"}
+
+
+def _secure_open(path, flags):
+    try:
+        fd = os.open(str(path), flags | os.O_NOFOLLOW, 0o600)
+    except OSError as exc:
+        if isinstance(exc, FileNotFoundError):
+            raise
+        raise DecideError(EXIT_ENV, "cannot open store file safely") from exc
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        os.close(fd)
+        raise DecideError(EXIT_ENV, "store file must be private and owned by the current user")
+    return fd
 
 
 class Store:
     def __init__(self, home: Path):
         self.home = Path(home)
         try:
-            mode = self.home.stat().st_mode
+            info = self.home.lstat()
         except FileNotFoundError:
             raise DecideError(EXIT_ENV, "home dir missing")
-        if not self.home.is_dir():
+        if not stat.S_ISDIR(info.st_mode):
             raise DecideError(EXIT_ENV, "home dir missing")
-        if stat.S_IMODE(mode) & 0o077:
-            raise DecideError(EXIT_ENV, "home dir must not be group or world accessible")
+        if info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise DecideError(EXIT_ENV, "home dir must be private and owned by the current user")
         self.path = self.home / "events.jsonl"
         self.lock_path = self.home / ".lock"
-        self._locked = False
+        self.head_path = self.home / "head"
+        self._owner = None
 
-    def lock(self):
-        return _StoreLock(self)
+    def lock(self, shared=False):
+        return _StoreLock(self, shared)
 
-    def read_events(self):
-        if not self.path.exists():
-            return []
-        events = []
-        with self.path.open("r", encoding="utf-8") as stream:
-            for number, line in enumerate(stream, 1):
-                if not line.strip():
-                    continue
-                try:
-                    events.append(json.loads(line))
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    raise DecideError(EXIT_ENV, "events.jsonl line {} is not JSON".format(number))
-        return events
-
-    def last_line_bytes(self):
+    def _read(self, path):
         try:
-            content = self.path.read_bytes()
+            fd = _secure_open(path, os.O_RDONLY)
         except FileNotFoundError:
             return None
-        lines = [line for line in content.splitlines() if line]
+        with os.fdopen(fd, "rb") as stream:
+            return stream.read()
+
+    def read_events(self):
+        content = self._read(self.path) or b""
+        try:
+            return [json.loads(line) for line in content.splitlines()]
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise DecideError(EXIT_ENV, "events.jsonl is not JSON") from exc
+
+    def last_line_bytes(self):
+        content = self._read(self.path) or b""
+        lines = content.splitlines()
         return lines[-1] if lines else None
 
     def append(self, event_type, item_id, data):
-        if not self._locked:
+        if self._owner != threading.get_ident():
             raise RuntimeError("append requires the store lock")
-        events = self.read_events()
-        previous = self.last_line_bytes()
-        event = {
-            "seq": events[-1]["seq"] + 1 if events else 1,
-            "ts": iso_z(utc_now()),
-            "type": event_type,
-            "id": item_id,
-            "data": data,
-            "prev_sha256": hashlib.sha256(previous).hexdigest() if previous is not None else ZERO_HASH,
-        }
+        result, lines = self._verify_locked()
+        if not result["ok"]:
+            raise DecideError(EXIT_CONFLICT, "cannot append to a broken log", result)
+        previous = lines[-1] if lines else None
+        event = {"seq": len(lines) + 1, "ts": iso_z(utc_now()), "type": event_type,
+                 "id": item_id, "data": data,
+                 "prev_sha256": hashlib.sha256(previous).hexdigest() if previous else ZERO_HASH}
         line = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        fd = os.open(str(self.path), os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+        fd = _secure_open(self.path, os.O_CREAT | os.O_APPEND | os.O_WRONLY)
         with os.fdopen(fd, "ab") as stream:
             stream.write(line + b"\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        head = json.dumps({"seq": event["seq"], "sha256": hashlib.sha256(line).hexdigest()},
+                          sort_keys=True, separators=(",", ":")).encode()
+        fd = _secure_open(self.head_path, os.O_CREAT | os.O_WRONLY)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(head)
+            stream.truncate()
             stream.flush()
             os.fsync(stream.fileno())
         return event
 
     def verify(self):
-        self.read_events()
-        try:
-            content = self.path.read_bytes()
-        except FileNotFoundError:
-            content = b""
-        lines = [line for line in content.splitlines() if line]
+        with self.lock(shared=True):
+            return self._verify_locked()[0]
+
+    def _verify_locked(self):
+        content = self._read(self.path) or b""
+        lines = content.splitlines()
         previous = ZERO_HASH
-        previous_seq = 0
         for number, raw in enumerate(lines, 1):
-            event = json.loads(raw)
-            seq = event.get("seq")
-            if event.get("prev_sha256") != previous:
-                return _broken(len(lines), seq, "prev_sha256 mismatch")
-            if seq != previous_seq + 1:
-                return _broken(len(lines), seq, "seq gap")
+            try:
+                event = json.loads(raw)
+            except (ValueError, UnicodeDecodeError):
+                return _broken(len(lines), number, "not JSON"), lines
+            seq = event.get("seq") if isinstance(event, dict) else None
+            if not isinstance(event, dict) or set(event) != KEYS:
+                return _broken(len(lines), number, "invalid event shape"), lines
+            if type(seq) is not int:
+                return _broken(len(lines), number, "invalid event shape"), lines
+            try:
+                timestamp = datetime.strptime(event["ts"], "%Y-%m-%dT%H:%M:%SZ")
+                valid_time = timestamp.strftime("%Y-%m-%dT%H:%M:%SZ") == event["ts"]
+            except (ValueError, TypeError):
+                valid_time = False
+            if not valid_time or not isinstance(event["type"], str) or not event["type"]:
+                return _broken(len(lines), number, "invalid event shape"), lines
+            if event["prev_sha256"] != previous:
+                return _broken(len(lines), seq, "prev_sha256 mismatch"), lines
+            if seq != number:
+                return _broken(len(lines), seq, "seq gap"), lines
             canonical = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
             if raw != canonical:
-                return _broken(len(lines), seq, "not canonical")
+                return _broken(len(lines), seq, "not canonical"), lines
             previous = hashlib.sha256(raw).hexdigest()
-            previous_seq = seq
-        return {"ok": True, "events": len(lines), "bad_seq": None, "reason": None}
+        if content and not content.endswith(b"\n"):
+            return _broken(len(lines), len(lines), "incomplete line"), lines
+        head = self._read(self.head_path)
+        expected = json.dumps({"seq": len(lines), "sha256": previous}, sort_keys=True, separators=(",", ":")).encode()
+        if (lines or head is not None) and head != expected:
+            return _broken(len(lines), len(lines), "head mismatch"), lines
+        return {"ok": True, "events": len(lines), "bad_seq": None, "reason": None}, lines
 
 
 class _StoreLock:
-    def __init__(self, store):
+    def __init__(self, store, shared):
         self.store = store
+        self.shared = shared
         self.fd = None
 
     def __enter__(self):
-        self.fd = os.open(str(self.store.lock_path), os.O_CREAT | os.O_RDWR, 0o600)
-        fcntl.flock(self.fd, fcntl.LOCK_EX)
-        self.store._locked = True
+        if self.store._owner == threading.get_ident():
+            raise RuntimeError("store lock is not reentrant")
+        self.fd = _secure_open(self.store.lock_path, os.O_CREAT | os.O_RDWR)
+        fcntl.flock(self.fd, fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX)
+        if not self.shared:
+            self.store._owner = threading.get_ident()
         return self.store
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.store._locked = False
+        if not self.shared:
+            self.store._owner = None
         fcntl.flock(self.fd, fcntl.LOCK_UN)
         os.close(self.fd)
 
