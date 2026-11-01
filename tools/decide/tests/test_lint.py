@@ -103,11 +103,60 @@ class LintFeatureTests(unittest.TestCase):
             start = time.monotonic()
             patterns[name].search(value)
             self.assertLess(time.monotonic() - start, 0.5, name)
+            start = time.monotonic()
+            scan_text(value)
+            self.assertLess(time.monotonic() - start, 0.5, name + " scan")
 
     def test_pr_numbers_are_not_text(self):
         """ids and numbers in a PR field are not text"""
         number = int("123" + "456" + "789")
         self.assertEqual(lint_request({"pr": {"number": number}}), [])
+
+    def test_sentence_email(self):
+        """a sentence-ending address is found"""
+        address = "person" + "@" + "example.com"
+        self.assertIn("email", scan_text(address + ". Thanks"))
+        self.assertEqual(scan_text("bot@users.noreply.github.com. ok"), [])
+
+    def test_invisible_characters(self):
+        """invisible characters do not hide secrets"""
+        token = "gh" + "p_" + "A" * 36
+        for invisible in ("\ufe0f", "\U000e0100", "\u034f", "\u20dd", "\u115f", "\u1160",
+                          "\u3164", "\uffa0", "\u2800", "\U000e0000", "\u200b\u0301"):
+            with self.subTest(invisible=ascii(invisible)):
+                self.assertIn("github_token", scan_text(token[:8] + invisible + token[8:]))
+
+    def test_untrusted_keys(self):
+        """untrusted keys are scanned and safely labelled"""
+        token = "gh" + "p_" + "A" * 36
+        self.assertEqual(lint_request({token: "safe"}), [("[key0]", "github_token")])
+        self.assertEqual(lint_request({"unsafe key": token}), [("[key0]", "github_token")])
+        self.assertEqual(lint_request({"a" * 65: token}), [("[key0]", "github_token")])
+
+    def test_rejects_unknown_types_and_deep_nesting(self):
+        """unsupported values and excessive nesting are rejected"""
+        for value in ((), set(), b"data", object()):
+            with self.subTest(value=type(value)):
+                with self.assertRaises(TypeError):
+                    lint_request({"value": value})
+        with self.assertRaises(TypeError):
+            lint_request({1: "safe"})
+        value = []
+        for _ in range(1200):
+            value = [value]
+        with self.assertRaises(ValueError):
+            lint_request(value)
+        cycle = []
+        cycle.append(cycle)
+        with self.assertRaises(ValueError):
+            lint_request(cycle)
+
+    def test_line_wraps(self):
+        """line wraps do not hide secrets"""
+        token = "gh" + "p_" + "A" * 36
+        for wrap in ("\n  ", "  \n", "\r", "\u2028", "\u2029", "\x85", "\\\n"):
+            with self.subTest(wrap=ascii(wrap)):
+                self.assertIn("github_token", scan_text(token[:8] + wrap + token[8:]))
 
 
 if __name__ == "__main__":

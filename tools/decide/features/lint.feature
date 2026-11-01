@@ -18,3 +18,8 @@ Feature: Generic text linting
   Scenario: private key blocks and noreply suffixes are found
   Scenario: unknown nested text fields are scanned
   Scenario: long nonmatching fields are scanned quickly
+  Scenario: a sentence-ending address is found
+  Scenario: invisible characters do not hide secrets
+  Scenario: untrusted keys are scanned and safely labelled
+  Scenario: unsupported values and excessive nesting are rejected
+  Scenario: line wraps do not hide secrets
