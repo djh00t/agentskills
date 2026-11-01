@@ -104,7 +104,8 @@ class LintFeatureTests(unittest.TestCase):
             patterns[name].search(value)
             self.assertLess(time.monotonic() - start, 0.5, name)
             start = time.monotonic()
-            scan_text(value)
+            with self.assertRaises(Exception):
+                scan_text(value)
             self.assertLess(time.monotonic() - start, 0.5, name + " scan")
 
     def test_pr_numbers_are_not_text(self):
@@ -135,11 +136,12 @@ class LintFeatureTests(unittest.TestCase):
 
     def test_rejects_unknown_types_and_deep_nesting(self):
         """unsupported values and excessive nesting are rejected"""
+        self.assertEqual(lint_request({"value": None}), [])
         for value in ((), set(), b"data", object()):
             with self.subTest(value=type(value)):
                 with self.assertRaises(TypeError):
                     lint_request({"value": value})
-        with self.assertRaises(TypeError):
+        with self.assertRaisesRegex(TypeError, "request keys must be strings"):
             lint_request({1: "safe"})
         value = []
         for _ in range(1200):
