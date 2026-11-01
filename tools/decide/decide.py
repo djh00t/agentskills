@@ -2,12 +2,12 @@
 """Command line entry point for decide."""
 
 import argparse
-import importlib
 import json
-from pathlib import Path
 import sys
 
 from decide_common import DecideError, emit
+
+COMMANDS = ()
 
 
 def _version(args):
@@ -16,21 +16,13 @@ def _version(args):
 
 
 def build_parser():
-    tool_dir = str(Path(__file__).resolve().parent)
-    if not sys.path or sys.path[0] != tool_dir:
-        sys.path.insert(0, tool_dir)
     parser = argparse.ArgumentParser(prog="decide")
-    parser.add_argument("--home", metavar="DIR", default=None)
-    parser.add_argument("--config", metavar="FILE", default=None)
     parser.add_argument("--json", action="store_true")
     subparsers = parser.add_subparsers(dest="command", required=True)
     version = subparsers.add_parser("version")
     version.set_defaults(func=_version)
-    for path in sorted(Path(__file__).parent.glob("decide_*.py")):
-        module = importlib.import_module(path.stem)
-        register = getattr(module, "register", None)
-        if register:
-            register(subparsers)
+    for module in COMMANDS:
+        module.register(subparsers)
     return parser
 
 
