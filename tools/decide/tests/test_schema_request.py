@@ -288,11 +288,13 @@ class RequestSchemaTests(unittest.TestCase):
         self.assertEqual(validate_request(obj), ["title: longer than 80 characters"])
 
     def test_option_count_boundary_is_independent(self):
+        """option count boundary is independent"""
         obj = fixture("simple")
         obj["options"] = obj["options"][:1]
         self.assertEqual(["options: must contain 2 to 4 items"], validate_request(obj))
 
     def test_git_ref_component_rules(self):
+        """git ref component rules are enforced"""
         for base in ("@", "/main", "main//next", ".hidden", "main/.hidden", "main.", "foo.lock/bar"):
             with self.subTest(base=base):
                 obj = fixture("pr_merge")
@@ -357,11 +359,13 @@ class RequestSchemaTests(unittest.TestCase):
             self.assertEqual([] if value else ["supersedes: must be an integer greater than or equal to 1"], validate_request(obj))
 
     def test_owner_can_merge(self):
+        """owner can merge"""
         obj = fixture("pr_merge")
         obj["pr"]["merger"] = "owner"
         self.assertEqual([], validate_request(obj))
 
     def test_unknown_fields_are_redacted(self):
+        """unknown fields are redacted"""
         for container in ("root", "bounds", "options", "pr"):
             obj = fixture("pr_merge")
             if container == "bounds":
@@ -373,3 +377,30 @@ class RequestSchemaTests(unittest.TestCase):
             errors = validate_request(obj)
             self.assertTrue(any("unknown field" in error for error in errors))
             self.assertTrue(all("sensitive" not in error for error in errors))
+
+    def test_raw_text_and_authority_boundaries(self):
+        """raw text and authority boundaries are enforced"""
+        for value in ("https://a%2eb/", "https://%61.b/", "https://0x7f000001/", "https://127.1/", "https://127.0.0.1/", "https://a..b/", "https://-a.b/", "https://:80/", "https://a\\.b/", "https://a:80%30/"):
+            with self.subTest(value=value):
+                obj = fixture("simple")
+                obj["links"] = [value]
+                self.assertIn("links[0]: must be a valid https URL", validate_request(obj))
+        for value in ("\u180f", "\ufe00", "\U000e01ef", "a\u00a0b", "a\u2003b", "\u3000x", "\u0301" * 5, "a" + "\u0301" * 79):
+            with self.subTest(value=value):
+                obj = fixture("simple")
+                obj["title"] = value
+                self.assertTrue(validate_request(obj))
+        obj = fixture("simple")
+        obj["title"] = "\u03b1\u0314\u0342\u0345" * 80
+        self.assertIn("title: longer than 80 characters", validate_request(obj))
+        for value in ("A: \u3164", "A: \u2800", "A: x\u034f", "A: b\u00a0c", "A: b\u2003c", "A: b\u3000c"):
+            with self.subTest(value=value):
+                obj = fixture("pr_merge")
+                obj["pr"]["trailers"] = [value]
+                self.assertIn("pr.trailers[0]: must be a single trailer line", validate_request(obj))
+        obj = fixture("pr_merge")
+        obj["pr"]["trailers"] = ["A: " + "\ufb03" * 33]
+        self.assertIn("pr.trailers[0]: longer than 100 characters", validate_request(obj))
+        obj = fixture("pr_merge")
+        obj["pr"]["base"] = "-x"
+        self.assertEqual(["pr.base: must be a valid git ref"], validate_request(obj))

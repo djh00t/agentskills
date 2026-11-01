@@ -19,3 +19,8 @@ Feature: decide request schema
   Scenario: normalized text length and UUID boundaries are enforced
   Scenario: spoofing and review boundaries are rejected
   Scenario: raw text length is limited before normalization
+  Scenario: raw text and authority boundaries are enforced
+  Scenario: option count boundary is independent
+  Scenario: git ref component rules are enforced
+  Scenario: owner can merge
+  Scenario: unknown fields are redacted
