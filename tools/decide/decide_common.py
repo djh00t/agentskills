@@ -3,9 +3,6 @@
 import json
 
 
-EXIT_ENV = 5
-
-
 class DecideError(Exception):
     def __init__(self, code, message, payload=None):
         super().__init__(message)
