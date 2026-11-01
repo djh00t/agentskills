@@ -374,34 +374,110 @@ class ConfigFeatureTests(unittest.TestCase):
         path = self.write_config(roster="- id: " + identifier + "\n\n  other: value\n  name: Correct\n")
         self.assertEqual(load_config(path).roster_names[identifier], "Correct")
 
-    def test_review_boundaries(self):
-        """wrapped values and config boundaries are checked"""
+    def test_mask_preserves_unmatched_line_breaks(self):
+        """mask preserves unmatched line breaks"""
         cfg = load_config(self.config)
-        self.assertEqual(mask_text("Quu\nxley", cfg)[0], "[masked:surname]")
+        self.assertEqual(mask_text("Hello\nWorld", cfg), ("Hello\nWorld", []))
+        self.assertEqual(mask_text("before\nQuu\nxley\nafter", cfg)[0], "before\n[masked:surname]\nafter")
         self.assertEqual(mask_text("U123\n4567", cfg)[0], "U…567")
-        self.assertIn("surname", scan_private("Ｑｕｕｘｌｅｙ", cfg))
-        path = self.write_config(roster="- {id: 11111111-1111-4111-8111-111111111111, name: x}\n- id: 22222222-2222-4222-8222-222222222222\n")
-        with self.assertRaises(Exception):
-            load_config(path)
+        self.assertEqual(mask_text("Quu\nxley\nafter", cfg)[0], "[masked:surname]\nafter")
+        self.assertEqual(mask_text("before\nQuu\nxley", cfg)[0], "before\n[masked:surname]")
+        self.assertEqual(mask_text("xley\nsafe\nQuu", cfg)[0], "xley\nsafe\nQuu")
+
+    def test_wrapped_private_scan(self):
+        """wrapped private values are detected"""
+        cfg = load_config(self.config)
+        self.assertEqual(scan_private("Quu\nxley", cfg), ["surname"])
+        self.assertEqual(scan_private("Ｑｕｕｘｌｅｙ", cfg), ["surname"])
+
+    def test_unsupported_roster_id_entries(self):
+        """unsupported roster id entries are rejected"""
+        identifier = "11111111-1111-4111-8111-111111111111"
+        for entry in (f'- {{id: {identifier}}}', f'- {{ID: {identifier}}}',
+                      f'- {{"id": {identifier}}}', f'- "id": {identifier}',
+                      f"- 'id': {identifier}", f'- name: x, id: {identifier}'):
+            with self.subTest(entry=entry):
+                with self.assertRaises(DecideError) as caught:
+                    load_config(self.write_config(roster=entry + "\n- id: " + identifier + "\n"))
+                self.assertEqual(caught.exception.code, EXIT_ENV)
+                self.assertEqual(str(caught.exception), "config: roster_path contains an unsupported id entry")
+
+    def test_uppercase_roster_id_key(self):
         path = self.write_config(roster="- ID: 11111111-1111-4111-8111-111111111111\n")
         self.assertEqual(len(load_config(path).roster_ids), 1)
+
+    def test_reviewer_login_length(self):
         self.assertEqual(load_config(self.write_config(lambda d: d.update(reviewer_login="a" * 39))).reviewer_login, "a" * 39)
-        with self.assertRaises(Exception):
+        with self.assertRaises(DecideError) as caught:
             load_config(self.write_config(lambda d: d.update(reviewer_login="a" * 40)))
-        path = self.write_config(lambda d: d.update(mask_rules=[{"name": "whole", "regex": "(U[0-9]+)", "replace": r"\1"}]))
-        self.assertNotIn("U123", mask_text("U123", load_config(path))[0])
-        path = self.write_config(lambda d: (d.pop("version"), d.update(extra=True)))
-        with self.assertRaises(Exception) as caught:
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+        self.assertEqual(str(caught.exception), "config: reviewer_login is invalid")
+
+    def test_replacement_containing_full_match_is_masked(self):
+        path = self.write_config(lambda d: d.update(mask_rules=[{"name": "acct", "regex": "(U[0-9]+)", "replace": r"[\1]"}]))
+        self.assertEqual(mask_text("U123", load_config(path))[0], "[masked:acct]")
+
+    def test_all_missing_keys_are_reported(self):
+        path = self.write_config(lambda d: (d.pop("version"), d.pop("timezone"), d.update(extra=True)))
+        with self.assertRaises(DecideError) as caught:
             load_config(path)
-        self.assertIn("version", str(caught.exception))
-        self.assertIn("extra", str(caught.exception))
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+        self.assertEqual(str(caught.exception), "config: keys required: timezone, version; unknown: extra")
+
+    def test_invalid_utf8_is_rejected(self):
+        path = self.write_config()
+        path.write_bytes(b"\xff")
+        with self.assertRaises(DecideError) as caught:
+            load_config(path)
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+        self.assertEqual(str(caught.exception), "config: file cannot be read")
+
+    def test_lint_pair_results_include_path_and_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first, second = Path(directory) / "first", Path(directory) / "second"
+            first.write_text("Quuxley\nx", encoding="utf-8")
+            second.write_text("x\nQuuxley", encoding="utf-8")
+            code, out, _ = run(["--json", "--config", str(self.config), "lint-files", str(first), str(second)])
+            self.assertEqual(code, 2)
+            self.assertEqual(json.loads(out), [{"path": str(first), "line": 1, "pattern": "surname"},
+                                               {"path": str(second), "line": 2, "pattern": "surname"}])
+
+    def test_lint_pair_deduplicates_each_file_and_line(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first, second = Path(directory) / "first", Path(directory) / "second"
+            first.write_text("Quuxley\n ", encoding="utf-8")
+            second.write_text(" \nQuuxley", encoding="utf-8")
+            for args, expected in (([str(first), str(second)],
+                                    [{"path": str(first), "line": 1, "pattern": "surname"},
+                                     {"path": str(second), "line": 2, "pattern": "surname"}]),):
+                code, out, _ = run(["--json", "--config", str(self.config), "lint-files"] + args)
+                self.assertEqual(code, 2)
+                self.assertEqual(json.loads(out), expected)
+            code, out, _ = run(["--config", str(self.config), "lint-files", str(second)])
+            self.assertEqual(code, 2)
+            self.assertEqual(out.strip(), f"{second}:2: surname")
+
+    def test_lint_wrapped_values(self):
+        """wrapped file values report their first line"""
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "input"
             target.write_text("Quu\nxley\nU123\n4567", encoding="utf-8")
+            code, out, _ = run(["--json", "--config", str(self.config), "lint-files", str(target)])
+            self.assertEqual(code, 2)
+            self.assertEqual(json.loads(out), [{"path": str(target), "line": 1, "pattern": "surname"},
+                                               {"path": str(target), "line": 3, "pattern": "mask:account"}])
             code, out, _ = run(["--config", str(self.config), "lint-files", str(target)])
             self.assertEqual(code, 2)
-            self.assertIn("surname", out)
-            self.assertIn("mask:account", out)
+            self.assertEqual(out.strip(), f"{target}:1: surname\n{target}:3: mask:account")
+
+    def test_lint_long_space_line_is_fast(self):
+        import time
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "input"
+            target.write_text("x\n" + " " * 16000, encoding="utf-8")
+            start = time.monotonic()
+            self.assertEqual(run(["--config", str(self.config), "lint-files", str(target)])[0], 0)
+            self.assertLess(time.monotonic() - start, 0.5)
 
     def test_scan_length_limit(self):
         """oversized fields and lines fail closed"""
