@@ -2,7 +2,8 @@
 
 `cg_envelope.py` parses and formats bounded `[CG ...]` messages. Parsing never
 authorizes execution. A missing or unknown recipient produces an informational
-message with no recipient.
+message with no recipient. Decision messages retain their kind when the
+recipient is unknown; warnings and the missing recipient still prevent routing.
 
 `roles.json` maps role names to agent IDs. The envelope validates role names and
 uses the role names for recipient checks; agent IDs are currently unused.
@@ -63,9 +64,47 @@ The repository workflow runs `make quality-gates` from this folder. It includes
 The scenarios in `features/message_log.feature` are implemented by the named
 `unittest` methods in `tests/test_cg_log.py` and run with `make check`.
 
-`cg_inbox.py` reads paged Codex messages and prints a JSON routing plan. Pass
-`--reader module:callable`, `--log PATH`, and a conversation ID. The reader
-accepts `(conversation_id, cursor, limit)` and returns `messages` and
-`next_cursor`. Optional `--roles FILE` supplies role-to-agent-ID mappings.
-The pass does not write the log or send, acknowledge, or launch messages.
-`tests/test_cg_inbox.py` covers paging, filtering, expiry, and read-only failure.
+`cg_inbox.py` reads paged Codex messages and prints a JSON routing plan:
+
+```shell
+python3 cg_inbox.py conversation --reader fixture_reader:read --log log.tsv
+```
+
+The imported reader is trusted operator code and **must be read-only**. The
+bridge cannot prevent an imported reader from performing writes or sends.
+The inbox itself does not create directories or lock files, write the log,
+send, acknowledge, or launch messages. `MessageLog.snapshot()` returns one
+consistent cursor/sequence snapshot without a writer lock; legacy migration is
+computed in memory. Pass `--legacy PATH` to inspect an unmigrated legacy cursor.
+
+> **Cursor semantics:** The first reader call receives the log's last handled
+> sequence. Every later call receives the previous `next_cursor` unchanged.
+> The reader accepts `(conversation_id, cursor, limit)` and returns a dictionary
+> with a `messages` list and `next_cursor` (an integer/string token or `None`).
+> Repeated tokens stop paging; 1000 pages is the hard cap. Repeated sequences
+> appear only once. Handled and migrated sequences are skipped using the log's
+> record-rejection rules.
+
+Optional `--roles FILE` supplies validated role-to-agent-ID mappings, loaded once
+per pass. Without it, recipients are unknown and entries include parse warnings
+and no agent route. No roster IDs are embedded in code. Received-but-unrouted
+sequences resurface with `pending: true` when returned by the reader; readers
+must replay unresolved messages even when they precede the handled cursor.
+Pending state is a separate read-only advisory observation and can change while
+a writer runs. A plan neither claims nor changes message state.
+
+`needs_owner` is advisory only, never an authorization gate. Decisions, parse
+warnings, and sensitive terms set it. Every entry has
+`execution_authorized: false`, including entries without the advisory flag.
+Parse warnings remain visible. Invalid messages become flagged error entries
+and do not abort other messages; invalid pages stop the pass with a clean error.
+Excerpts are bounded to 200 characters.
+
+`expires_at` is optional **epoch seconds**, from 0 through 253402300799 (the end
+of year 9999). ISO strings, millisecond epochs, booleans, NaN, infinities, and
+negative values are invalid. The clock is read once per pass; equality means
+expired. Every entry includes `expired`; error entries use `false` because
+expiry was not established. `--limit` must be positive.
+
+Scenarios in `features/inbox.feature` map to the named executable tests in
+`tests/test_cg_inbox.py`. All tests use local fixtures.

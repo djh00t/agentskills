@@ -17,7 +17,7 @@ class EnvelopeError(ValueError):
     """Message or role configuration violates the envelope contract."""
 
 
-def _roles(path: str | Path | None) -> dict[str, str]:
+def load_roles(path: str | Path | None) -> dict[str, str]:
     try:
         result = json.loads(Path(path or DEFAULT_ROLES).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -47,7 +47,7 @@ def format_envelope(req: str, kind: str, to: str, re_seq: str, body: str,
     """Return a validated header followed by its body."""
     if not all(isinstance(value, str) for value in (req, kind, to, re_seq, body)):
         raise EnvelopeError("envelope fields must be text")
-    roles = _roles(roles_path)
+    roles = load_roles(roles_path)
     if not re.fullmatch(r"REQ-CG-[0-9]{8}-[0-9]{3}", req):
         raise EnvelopeError("invalid request id")
     if kind not in KINDS:
@@ -61,10 +61,10 @@ def format_envelope(req: str, kind: str, to: str, re_seq: str, body: str,
     return message
 
 
-def parse(text: str, roles_path: str | Path | None = None) -> dict:
+def parse(text: str, roles_path: str | Path | None = None, *, roles: dict[str, str] | None = None) -> dict:
     """Parse a message. Header claims never authorize execution."""
     _bounded(text)
-    roles = _roles(roles_path)
+    roles = load_roles(roles_path) if roles is None else roles
     header, separator, body = text.partition("\n")
     match = HEADER.fullmatch(header)
     warnings = []
@@ -77,7 +77,8 @@ def parse(text: str, roles_path: str | Path | None = None) -> dict:
         kind = "fyi"
     if to not in roles:
         warnings.append(f"unknown role: {to}")
-        kind = "fyi"
+        if kind != "decision":
+            kind = "fyi"
         to = None
     return {"req": req, "kind": kind, "to": to, "re": re_seq,
             "body": body if separator else "", "warnings": warnings,
