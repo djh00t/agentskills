@@ -18,3 +18,14 @@ Feature: decide event store
   Scenario: store paths with the wrong owner are refused
   Scenario: home must be a directory
   Scenario: verify-log rejects a missing final newline
+  Scenario: head recovery after interrupted append
+  Scenario: head recovery refuses more than one event
+  Scenario: head is atomically replaced and directory synced
+  Scenario: deep json returns broken exit 3
+  Scenario: missing or changed head and broken append
+  Scenario: lock is not reentrant
+  Scenario: non ascii data round trips
+  Scenario: oversized event is refused
+  Scenario: shared lock does not allow append
+  Scenario: fifo is refused
+  Scenario: interrupted head replace and torn line recovery
