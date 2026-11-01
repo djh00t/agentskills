@@ -16,3 +16,6 @@ Feature: event, answer and legacy schemas
   Scenario: validation rejects invalid boundaries
   Scenario: event and answer boundaries are enforced
   Scenario: free text rejects invisible and overlong raw values
+  Scenario: free text requires strings
+  Scenario: invalid choice and label report both errors
+  Scenario: raw non printable text is rejected after normalization
