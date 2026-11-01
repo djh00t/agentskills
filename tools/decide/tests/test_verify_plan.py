@@ -75,10 +75,19 @@ class VerifyPlanTests(unittest.TestCase):
     def test_item_ids_use_ascii_decimal_digits(self):
         """item ids use ASCII decimal digits"""
         for command in ("verify-pr", "status"):
-            for value in (" 1 ", "0_1", "١"):
+            for value in ("0", "-1", " 1 ", "0_1", "١", "9" * 5000):
                 with self.subTest(command=command, value=value):
-                    code, output, _ = run(["--home", str(temp_home()), command, value])
+                    code, output, error = run(["--home", str(temp_home()), command, value])
                     self.assertEqual((2, ""), (code, output))
+                    self.assertEqual("decide {}: error: argument id: item id must be a positive integer using only ASCII digits".format(command), error.splitlines()[-1])
+
+    def test_unknown_ids_with_zero_and_long_ids(self):
+        """unknown ids with zero and long ids"""
+        for command in ("verify-pr", "status"):
+            for value, shown in (("10", "10"), ("9" * 100, "9" * 32 + "...")):
+                with self.subTest(command=command, value=value):
+                    code, output, error = run(["--home", str(temp_home()), command, value])
+                    self.assertEqual((4, "", "decide: error: no item #{}\n".format(shown)), (code, output, error))
 
     def test_a_simple_item_has_no_plan(self):
         """a simple item has no plan"""
