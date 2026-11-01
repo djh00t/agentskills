@@ -13,8 +13,8 @@ GENERIC_PATTERNS = [
         "email",
         re.compile(
             r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]++@"
-            r"(?!users\.noreply\.github\.com(?![A-Za-z0-9.-]))"
-            r"(?:[A-Za-z0-9-]++\.)++[A-Za-z]{2,}", re.IGNORECASE
+            r"(?!users\.noreply\.github\.com(?![A-Za-z0-9-]|\.[A-Za-z0-9]))"
+            r"(?:[A-Za-z0-9-]++\.)+[A-Za-z]{2,}", re.IGNORECASE
         ),
     ),
     ("home_path", re.compile(r"(?:/U[s]ers/[^/\s]+|/h[o]me/[^/\s]+|~/)")),
@@ -26,8 +26,11 @@ GENERIC_PATTERNS = [
 
 def scan_text(text):
     text = unicodedata.normalize("NFKC", text)
-    text = "".join(char for char in text if unicodedata.category(char) != "Cf")
-    variants = (text, re.sub(r"\r?\n[ \t]*", "", text))
+    text = "".join(char for char in text
+                   if unicodedata.category(char) not in {"Cf", "Cn", "Mn", "Me"}
+                   and char not in "\u115f\u1160\u3164\uffa0\u2800")
+    text = unicodedata.normalize("NFKC", text)
+    variants = (text, re.sub(r"[ \t]*\\?(?:\r\n|[\r\n\x85\u2028\u2029])[ \t]*", "", text))
     return [
         name for name, pattern in GENERIC_PATTERNS
         if any(
@@ -39,20 +42,30 @@ def scan_text(text):
 
 
 def iter_text_fields(req, path=""):
-    if isinstance(req, str):
-        yield path, req
-    elif isinstance(req, dict):
-        for index, (key, value) in enumerate(req.items()):
-            # Keys are untrusted too; never place a matched value in a report path.
-            label = str(key)
-            key_hits = scan_text(label)
-            child = (path + "." if path else "") + ("[key{}]".format(index) if key_hits else label)
-            if key_hits:
-                yield child, label
-            yield from iter_text_fields(value, child)
-    elif isinstance(req, list):
-        for index, value in enumerate(req):
-            yield from iter_text_fields(value, "{}[{}]".format(path, index))
+    stack = [(req, path, 0)]
+    while stack:
+        value, current, depth = stack.pop()
+        if depth > 256:
+            raise ValueError("request nesting exceeds limit")
+        if isinstance(value, str):
+            yield current, value
+        elif isinstance(value, dict):
+            children = []
+            for index, (key, item) in enumerate(value.items()):
+                if not isinstance(key, str):
+                    raise TypeError("request keys must be strings")
+                key_hits = scan_text(key)
+                label = key if not key_hits and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", key) else "[key{}]".format(index)
+                child = (current + "." if current else "") + label
+                if key_hits:
+                    children.append((key, child, depth + 1))
+                children.append((item, child, depth + 1))
+            stack.extend(reversed(children))
+        elif isinstance(value, list):
+            stack.extend((item, "{}[{}]".format(current, index), depth + 1)
+                         for index, item in reversed(list(enumerate(value))))
+        elif value is not None and not isinstance(value, (int, float, bool)):
+            raise TypeError("unsupported request value type")
 
 
 def lint_request(req):
