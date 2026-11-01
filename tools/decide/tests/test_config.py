@@ -3,9 +3,10 @@ from pathlib import Path
 import tempfile
 import shutil
 import unittest
+from unittest.mock import patch
 
 from decide_common import EXIT_ENV
-from decide_config import Config, load_config
+from decide_config import Config, _secure_file, load_config
 from decide_lint import mask_obj, mask_text
 from tests.helpers import FIXTURES, run
 
@@ -127,9 +128,16 @@ class ConfigFeatureTests(unittest.TestCase):
             lambda d: d.pop("version"), lambda d: d.update(version=2),
             lambda d: d.update(roster_path="/outside"), lambda d: d.update(roster_path="../outside"),
             lambda d: d.update(roster_path="missing"), lambda d: d.update(reviewer_login="!"),
+            lambda d: d.update(reviewer_login=9),
+            lambda d: d.update(private_patterns={}),
+            lambda d: d.update(private_patterns=[{"name": "x", "regex": 9}]),
+            lambda d: d.update(mask_rules=[{"name": "x", "regex": "x", "replace": "\\g<8>"}]),
             lambda d: d.update(verdict_regex="["), lambda d: d.update(verdict_regex="abc"),
             lambda d: d.update(timezone="Invalid/Zone"), lambda d: d.update(check_times=[]),
             lambda d: d.update(check_times=["12:00", "09:00"]),
+            lambda d: d.update(check_times=["25:00"]),
+            lambda d: d.update(private_patterns=[{"name": "x", "regex": "x", "extra": True}]),
+            lambda d: d.update(page_summary="{as_of} {waiting} {extra}"),
             lambda d: d.update(private_patterns=[{"name": "x"}]),
             lambda d: d.update(private_patterns=[{"name": "x", "regex": "x"}] * 2),
             lambda d: d.update(private_patterns=[{"name": "!", "regex": "x"}]),
@@ -139,6 +147,8 @@ class ConfigFeatureTests(unittest.TestCase):
             lambda d: d.update(page_title=""), lambda d: d.update(page_summary="x"),
             lambda d: d.update(page_summary="{as_of} {waiting}" + "x" * 400),
             lambda d: d.update(page_summary="{waiting} {waiting}"),
+            lambda d: d.update(page_summary="{waiting} {extra}"),
+            lambda d: d.update(page_summary="{as_of} {extra}"),
         ]
         for change in cases:
             with self.subTest(change=change):
@@ -177,6 +187,76 @@ class ConfigFeatureTests(unittest.TestCase):
         data["roster_path"] = "../" + path.parent.name + "/roster.yaml"
         path.write_text(json.dumps(data))
         self.assertEqual(run(["--config", str(path), "lint-files", "x"])[0], EXIT_ENV)
+
+    def test_config_file_validation_boundaries(self):
+        """config files and roster paths enforce their separate guards"""
+        path = self.write_config()
+        path.write_text("[]", encoding="utf-8")
+        with self.assertRaises(Exception) as caught:
+            load_config(path)
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+
+        path = self.write_config()
+        data = json.loads(path.read_text())
+        data["roster_path"] = str(path.parent / "roster.yaml")
+        path.write_text(json.dumps(data))
+        with patch.object(Path, "is_symlink", return_value=False):
+            with self.assertRaises(Exception) as caught:
+                load_config(path)
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+
+        path = self.write_config()
+        (path.parent / "actual").mkdir(mode=0o700)
+        shutil.copy(path.parent / "roster.yaml", path.parent / "actual" / "roster.yaml")
+        (path.parent / "alias").symlink_to(path.parent / "actual", target_is_directory=True)
+        data = json.loads(path.read_text())
+        data["roster_path"] = "alias/roster.yaml"
+        path.write_text(json.dumps(data))
+        with self.assertRaises(Exception) as caught:
+            load_config(path)
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+
+        path = self.write_config()
+        with patch("decide_config.os.getuid", return_value=-1):
+            with self.assertRaises(Exception) as caught:
+                load_config(path)
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+
+        alias = path.parent / "alias.json"
+        alias.symlink_to(path)
+        with patch.object(Path, "lstat", return_value=path.stat()):
+            with self.assertRaises(Exception) as caught:
+                _secure_file(alias, "file")
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+
+        directory = path.parent / "directory"
+        directory.mkdir(mode=0o700)
+        with self.assertRaises(Exception) as caught:
+            _secure_file(directory, "file")
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+
+    def test_resolved_roster_path_containment(self):
+        """a resolved roster outside the config directory exits 5"""
+        original = Path.resolve
+
+        def resolve(path, *args, **kwargs):
+            if path.name == "roster.yaml":
+                return path.parent.parent / "outside" / path.name
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "resolve", resolve):
+            with self.assertRaises(Exception) as caught:
+                load_config(self.config)
+        self.assertEqual(caught.exception.code, EXIT_ENV)
+
+    def test_scan_length_before_and_after_normalization(self):
+        """scan limits apply before and after normalization"""
+        cfg = load_config(self.config)
+        for value in ("A\u030a" * 32769, "\ufb03" * 21846):
+            with self.subTest(length=len(value)):
+                with self.assertRaises(Exception) as caught:
+                    mask_text(value, cfg)
+                self.assertEqual(caught.exception.code, 2)
 
     def test_scan_length_limit(self):
         """oversized fields and lines fail closed"""
