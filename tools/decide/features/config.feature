@@ -20,3 +20,6 @@ Feature: Private configuration and file masking
   Scenario: roster names stay within their entry and default to the id
   Scenario: roster paths cannot escape or use symlinks
   Scenario: oversized fields and lines fail closed
+  Scenario: a resolved roster outside the config directory exits 5
+  Scenario: scan limits apply before and after normalization
+  Scenario: config files and roster paths enforce their separate guards
