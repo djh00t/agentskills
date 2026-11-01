@@ -26,4 +26,7 @@ Feature: Private configuration and file masking
   Scenario: unreadable private files and invalid types fail closed
   Scenario: mask collisions and duplicate hits are handled safely
   Scenario: roster names do not cross sibling entries
-  Scenario: wrapped values and config boundaries are checked
+  Scenario: mask preserves unmatched line breaks
+  Scenario: wrapped private values are detected
+  Scenario: unsupported roster id entries are rejected
+  Scenario: wrapped file values report their first line
