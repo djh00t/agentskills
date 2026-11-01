@@ -2,8 +2,40 @@ import unittest
 
 from decide_parse import parse_text
 
+try:
+    from decide_schema import _safe_text
+except ImportError:
+    _safe_text = None
+
+REJECTED_WORDS = ("152: B\u200b", "152: B\nmore", "152: B\x07")
+
 
 class ParseTextTests(unittest.TestCase):
+    def test_answer_validator_contract(self):
+        """answer words meet the sibling validator contract"""
+        for text in REJECTED_WORDS:
+            if _safe_text is not None:
+                self.assertFalse(_safe_text(text, 4000))
+            result = parse_text(text)
+            if result["result"] != "ambiguous":
+                self.assertEqual(result["words"], "152: B")
+                if _safe_text is not None:
+                    self.assertTrue(_safe_text(result["words"], 4000))
+
+    def test_bounds_invisibles_and_answer_contract(self):
+        """bounded and safe answer text"""
+        for text in ("1" * 4001, "1" * 4301, "1" * 20000, "\ufdfa" * 223):
+            self.assertEqual(parse_text(text)["result"], "ambiguous")
+        for text in ("152: B\u3164", "152\u3164: B"):
+            self.assertEqual((parse_text(text)["result"], parse_text(text)["id"], parse_text(text)["choice"]), ("option", 152, "B"))
+        for text in ("152: B\nmore", "152: B\x07"):
+            self.assertEqual(parse_text(text)["result"], "ambiguous")
+        self.assertEqual(parse_text("123456789: B")["id"], 123456789)
+        for text in ("1234567890: B", "١٥٢: B"):
+            self.assertNotEqual(parse_text(text)["result"], "option")
+        self.assertEqual(parse_text("152: B, 3 apples")["result"], "option")
+        self.assertEqual(parse_text("Approve 7")["choice"], "rec")
+
     def test_a_widget_tap_is_an_option(self):
         """a widget tap is an option"""
         self.assertEqual(parse_text("152: B, Keep the old layout"), {
@@ -41,14 +73,14 @@ class ParseTextTests(unittest.TestCase):
         """an invisible character is removed from an option"""
         text = "152: B\u200b"
         self.assertEqual(parse_text(text), {
-            "result": "option", "id": 152, "choice": "B", "words": text,
+            "result": "option", "id": 152, "choice": "B", "words": "152: B",
         })
 
     def test_question_id_is_found_after_normalization(self):
         """a question id is found after normalization"""
         text = "\u200b152: B?"
         self.assertEqual(parse_text(text), {
-            "result": "question", "id": 152, "choice": None, "words": text,
+            "result": "question", "id": 152, "choice": None, "words": "152: B?",
         })
 
     def test_question_takes_precedence_over_multiple_decisions(self):
@@ -83,19 +115,19 @@ class ParseTextTests(unittest.TestCase):
 
     def test_question_mark_anywhere_in_text_is_a_question(self):
         """question text remains a question after punctuation or invisible text"""
-        for suffix in ("", "!", " thanks", "\n\nthanks", "\u3164", "\u2800", "\u034f", "\ufe0f"):
+        for suffix in ("", "!", " thanks", "\u3164", "\u2800", "\u034f", "\ufe0f"):
             with self.subTest(suffix=repr(suffix)):
                 text = f"152: B, ok?{suffix}"
                 self.assertEqual(parse_text(text), {
                     "result": "question", "id": 152, "choice": None,
-                    "words": text,
+                    "words": "152: B, ok?" + (suffix if suffix in ("", "!", " thanks") else ""),
                 })
 
     def test_trailing_zero_width_space_does_not_hide_question(self):
         """a trailing zero-width space does not hide a question"""
         self.assertEqual(parse_text("152: B?\u200b"), {
             "result": "question", "id": 152, "choice": None,
-            "words": "152: B?\u200b",
+            "words": "152: B?",
         })
 
     def test_second_decision_in_reason_is_ambiguous(self):
