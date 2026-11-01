@@ -25,3 +25,5 @@ Feature: decide request schema
   Scenario: unknown fields are redacted
 
   Scenario: review boundaries are enforced
+
+  Scenario: mutation boundaries are enforced
