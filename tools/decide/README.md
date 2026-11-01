@@ -23,3 +23,7 @@ Global options go before the command. For example, run `python3 decide.py --json
 ## Tests
 
 Run `make check` from this directory.
+
+The generic lint API scans request strings and reports paths and pattern names.
+It normalizes Unicode and line wraps, but does not decode encoded secrets.
+It is not yet connected to a command.
