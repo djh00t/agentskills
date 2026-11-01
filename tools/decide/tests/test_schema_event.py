@@ -1,6 +1,6 @@
 import unittest
 
-from decide_schema import UUID_RE, validate_answer, validate_event, validate_legacy
+from decide_schema import EVENT_TYPES, STATES, UUID_RE, validate_answer, validate_event, validate_legacy
 
 
 def event(**changes):
@@ -16,6 +16,23 @@ def answer(**changes):
 
 
 class EventSchemaTests(unittest.TestCase):
+    def test_schema_constants(self):
+        self.assertEqual(STATES, ("open", "ready", "shown", "on_hold", "approved", "answered", "rejected", "merged", "merge_failed", "expired", "withdrawn", "superseded"))
+        self.assertEqual(EVENT_TYPES, ("ask", "transition", "chase", "verify", "answer", "closed_by", "outbox", "outbox_sent", "amend", "import", "page_ack", "counter_floor"))
+
+    def test_legacy_text_and_optional_fields(self):
+        legacy = {"id": 1, "kind": "simple", "title": "x" * 80, "state": "open"}
+        self.assertEqual(validate_legacy(legacy), [])
+        self.assertEqual(validate_legacy(dict(legacy, requester="11111111-1111-4111-8111-111111111111")), [])
+        self.assertEqual(validate_legacy(dict(legacy, requester=None)), [])
+        self.assertEqual(validate_legacy(dict(legacy, requester=1)), ["requester: must be a UUID"])
+        self.assertEqual(validate_legacy(dict(legacy, pr=None)), [])
+        self.assertEqual(validate_legacy(dict(legacy, pr={"head_sha": 1})), ["pr.head_sha: must be 7 to 40 lowercase hex characters"])
+        self.assertEqual(validate_legacy(dict(legacy, pr={"head_sha": "ABCDEF0"})), ["pr.head_sha: must be 7 to 40 lowercase hex characters"])
+        for value in ("a" + "\u0301" * 3, "a\u0f77", "\u00b4", "\u0903"):
+            with self.subTest(value=value):
+                self.assertEqual(validate_legacy(dict(legacy, title=value)), ["title: must be a non-empty string"])
+
     def test_an_event_with_an_unknown_type_is_invalid(self):
         """an event with an unknown type is invalid"""
         self.assertEqual(validate_event(event(type="unknown")), ["type: must be a known event type"])
@@ -24,11 +41,13 @@ class EventSchemaTests(unittest.TestCase):
         """only page_ack and counter_floor may have a null id"""
         self.assertEqual(validate_event(event(id=None)), ["id: must be a positive integer or null for page_ack/counter_floor"])
         self.assertEqual(validate_event(event(type="page_ack", id=None)), [])
+        self.assertEqual(validate_event(event(type="page_ack", id="x")), ["id: must be a positive integer or null for page_ack/counter_floor"])
         self.assertEqual(validate_event(event(type="counter_floor", id=None)), [])
 
     def test_prev_sha256_must_be_64_hex_characters(self):
         """prev_sha256 must be 64 hex characters"""
         self.assertEqual(validate_event(event(prev_sha256="A" * 64)), ["prev_sha256: must be 64 lowercase hex characters"])
+        self.assertEqual(validate_event(event(prev_sha256=1)), ["prev_sha256: must be 64 lowercase hex characters"])
 
     def test_an_event_timestamp_must_be_utc_with_z(self):
         """an event timestamp must be UTC with Z"""

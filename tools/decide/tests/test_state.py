@@ -45,11 +45,74 @@ class StateTests(unittest.TestCase):
         store = Store(temp_home())
         item = asked(store)
         with store.lock():
-            write_transition(store, item, "answered")
+            write_transition(store, item, "shown")
         with store.lock():
             with self.assertRaises(DecideError) as caught:
-                write_transition(store, item, "rejected")
+                write_transition(store, item, "expired")
             self.assertEqual(3, caught.exception.code)
+        self.assertEqual("shown", fold(store.read_events())[1]["state"])
+        self.assertEqual(2, len(store.read_events()))
+
+    def test_illegal_transition_write_is_refused(self):
+        """illegal transition writes are refused"""
+        store = Store(temp_home())
+        item = asked(store)
+        with store.lock(), self.assertRaises(DecideError) as caught:
+            write_transition(store, item, "merged")
+        self.assertEqual(3, caught.exception.code)
+        self.assertEqual(1, len(store.read_events()))
+
+    def test_legacy_states_must_be_reachable_for_the_kind(self):
+        """legacy states must be reachable for the kind"""
+        for kind in ("simple", "complex"):
+            for state in ("open", "approved", "merged", "merge_failed"):
+                store = Store(temp_home())
+                append(store, "import", 1, {"record": dict(request(kind), id=1, state=state)})
+                with self.subTest(kind=kind, state=state):
+                    with self.assertRaises(DecideError) as caught:
+                        fold(store.read_events())
+                    self.assertEqual(3, caught.exception.code)
+        store = Store(temp_home())
+        append(store, "import", 1, {"record": dict(request(), id=1, state="answered", created_at="2026-01-01T00:00:00Z")})
+        self.assertEqual("2026-01-01T00:00:00Z", fold(store.read_events())[1]["closed_at"])
+
+    def test_valid_pr_merge_legacy_states_load_with_correct_closed_at(self):
+        """valid pr_merge legacy states load and set closed_at only when closed"""
+        for state in ("open", "approved", "merged"):
+            with self.subTest(state=state):
+                store = Store(temp_home())
+                record = dict(request("pr_merge"), id=1, state=state,
+                              created_at="2026-01-01T00:00:00Z")
+                append(store, "import", 1, {"record": record})
+                item = fold(store.read_events())[1]
+                self.assertEqual(state, item["state"])
+                if state == "merged":
+                    self.assertEqual("2026-01-01T00:00:00Z", item["closed_at"])
+                else:
+                    self.assertIsNone(item["closed_at"])
+
+    def test_non_string_transition_target_is_refused(self):
+        for target in ([], {}):
+            store = Store(temp_home())
+            asked(store)
+            append(store, "transition", 1, {"from": "ready", "to": target})
+            with self.assertRaises(DecideError) as caught:
+                fold(store.read_events())
+            self.assertEqual(3, caught.exception.code)
+
+    def test_status_refuses_id_with_requester_and_key(self):
+        self.assertEqual(2, run(["status", "1", "--requester", "a", "--key", "b"])[0])
+
+    def test_read_refuses_head_more_than_one_event_behind(self):
+        store = Store(temp_home())
+        append(store, "page_ack", None, {})
+        old_head = store.head_path.read_bytes()
+        append(store, "page_ack", None, {})
+        append(store, "page_ack", None, {})
+        store.head_path.write_bytes(old_head)
+        with self.assertRaises(DecideError) as caught:
+            store.read_events()
+        self.assertEqual(3, caught.exception.code)
 
     def test_null_page_ack_allows_later_writes(self):
         """a null page acknowledgement permits later writes"""
