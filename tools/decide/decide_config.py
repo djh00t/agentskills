@@ -39,7 +39,7 @@ def _fail(key, detail="is invalid"):
 
 def _string(data, key, low=None, high=None):
     value = data[key]
-    if not isinstance(value, str) or (low is not None and not low <= len(value) <= high):
+    if not isinstance(value, str) or (low is not None and len(value) < low) or (high is not None and len(value) > high):
         _fail(key)
     return value
 
@@ -178,7 +178,7 @@ def load_config(path):
                     _fail(key, "has an invalid replacement")
                 target.append((name, compiled, replacement))
     title = _string(data, "page_title", 1, 80)
-    summary = _string(data, "page_summary", 0, 400)
+    summary = _string(data, "page_summary", high=400)
     placeholders = re.findall(r"\{([^{}]*)\}", summary)
     if placeholders.count("as_of") != 1 or placeholders.count("waiting") != 1 or len(placeholders) != 2:
         _fail("page_summary")
