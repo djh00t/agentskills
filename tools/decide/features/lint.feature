@@ -14,3 +14,7 @@ Feature: Generic text linting
   Scenario: lint_request names the field path
   Scenario: the hit report never contains the matched text
   Scenario: ids and numbers in a PR field are not text
+  Scenario: normalized and wrapped secrets are found
+  Scenario: private key blocks and noreply suffixes are found
+  Scenario: unknown nested text fields are scanned
+  Scenario: long nonmatching fields are scanned quickly
