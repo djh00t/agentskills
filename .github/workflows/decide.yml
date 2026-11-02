@@ -1,0 +1,48 @@
+name: decide
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: decide-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      decide: ${{ steps.diff.outputs.decide }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if ! files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"; then
+            echo "decide=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if printf '%s\n' "$files" | grep -Eq '^(tools/decide/|\.github/workflows/decide\.yml$)'; then
+            echo "decide=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "decide=false" >> "$GITHUB_OUTPUT"
+          fi
+  test:
+    needs: changes
+    if: needs.changes.outputs.decide == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tools/decide
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: make quality-gates
+        run: make quality-gates

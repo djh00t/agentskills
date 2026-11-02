@@ -1,0 +1,15 @@
+{
+  "key": "merge-example-change",
+  "requester": "11111111-1111-4111-8111-111111111111",
+  "kind": "pr_merge",
+  "title": "Choose how to merge the example change",
+  "question": "How should the example change be merged?",
+  "why_owner": "The requester owns the example change.",
+  "options": [
+    {"label": "A", "text": "Merge commit", "changes": "Create a merge commit.", "reversible": "no", "rec": true, "approves_merge": true},
+    {"label": "B", "text": "Rebase", "changes": "Rebase the example commits.", "reversible": "no", "rec": false, "approves_merge": false}
+  ],
+  "rec_reason": "Keep the example branch history intact.",
+  "priority": "P1",
+  "pr": {"repo": "example-org/example-repo", "number": 1, "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "base": "main", "merger": "agent", "merge_method": "merge"}
+}
