@@ -48,3 +48,13 @@ class CliTests(unittest.TestCase):
                     self.assertEqual(5, code)
                     self.assertEqual(expected, stdout)
                     self.assertEqual("decide: error: boom\n", stderr)
+
+    def test_json_output_is_sorted_and_preserves_unicode(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from decide_common import emit
+
+        output = StringIO()
+        with redirect_stdout(output):
+            emit(SimpleNamespace(json=True), {"z": "é", "a": 1}, "unused")
+        self.assertEqual('{"a": 1, "z": "é"}\n', output.getvalue())

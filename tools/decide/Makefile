@@ -1,10 +1,13 @@
 PYTHON ?= python3
 
-.PHONY: check quality-gates install clean build publish
+.PHONY: check mutation quality-gates install clean build publish
 
 check:
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. $(PYTHON) -m unittest discover -s tests -q
 	$(PYTHON) decide.py --help > /dev/null
+
+mutation:
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m mutmut run
 
 quality-gates: check
 
