@@ -281,6 +281,12 @@ class RequestSchemaTests(unittest.TestCase):
         self.assertTrue(validate_request(obj))
         self.assertIsNone(UUID_RE.match(obj["requester"] + "\n"))
 
+    def test_raw_text_length_is_limited_before_normalization(self):
+        """raw text length is limited before normalization"""
+        obj = fixture("simple")
+        obj["title"] = "e\u0301" * 41
+        self.assertEqual(validate_request(obj), ["title: longer than 80 characters"])
+
     def test_option_count_boundary_is_independent(self):
         """option count boundary is independent"""
         obj = fixture("simple")

@@ -6,8 +6,11 @@ import json
 import sys
 
 from decide_common import DecideError, emit
+import decide_store
+import decide_state
+import decide_verify
 
-COMMANDS = ()
+COMMANDS = (decide_state, decide_store, decide_verify)
 
 
 def _version(args):
@@ -17,6 +20,7 @@ def _version(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="decide")
+    parser.add_argument("--home", metavar="DIR", default=None)
     parser.add_argument("--json", action="store_true")
     subparsers = parser.add_subparsers(dest="command", required=True)
     version = subparsers.add_parser("version")
