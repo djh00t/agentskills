@@ -1,11 +1,8 @@
 """Item state transitions, event folding and read commands."""
 
-import argparse
-import re
-
 from decide_schema import validate_event, validate_request, validate_answer, validate_legacy
 
-from decide_common import DecideError, emit, home_dir
+from decide_common import DecideError, emit, home_dir, parse_item_id
 from decide_store import Store
 
 
@@ -134,7 +131,10 @@ def items(store):
 def get_item(store, item_id):
     item = items(store).get(item_id)
     if item is None:
-        raise DecideError(4, "no item #{}".format(item_id))
+        display_id = str(item_id)
+        if len(display_id) > 32:
+            display_id = display_id[:32] + "..."
+        raise DecideError(4, "no item #{}".format(display_id))
     return item
 
 
@@ -177,15 +177,9 @@ def _list(args):
     return 0
 
 
-def positive_id(value):
-    if not re.fullmatch(r"[1-9][0-9]*", value):
-        raise argparse.ArgumentTypeError("id must be a positive decimal integer")
-    return int(value)
-
-
 def register(subparsers):
     status = subparsers.add_parser("status")
-    status.add_argument("id", type=positive_id, nargs="?")
+    status.add_argument("id", type=parse_item_id, nargs="?")
     status.add_argument("--requester")
     status.add_argument("--key")
     status.set_defaults(func=_status)

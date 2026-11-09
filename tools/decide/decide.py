@@ -8,8 +8,9 @@ import sys
 from decide_common import DecideError, emit
 import decide_store
 import decide_state
+import decide_verify
 
-COMMANDS = (decide_state, decide_store)
+COMMANDS = (decide_state, decide_store, decide_verify)
 
 
 def _version(args):
