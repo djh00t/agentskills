@@ -1,0 +1,59 @@
+{
+  "releases": [
+    {"id": "rel-2026-01", "title": "January acceptance release"},
+    {"id": "rel-2026-02", "title": "February acceptance release"}
+  ],
+  "items": {
+    "rel-2026-01": [
+      {
+        "title": "Release notes",
+        "status": "BLOCKED",
+        "issue_url": "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/101"
+      },
+      {
+        "title": "Pipe | and line\nbreak",
+        "status": "Waiting",
+        "issue_url": "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/102"
+      }
+    ],
+    "rel-2026-02": [
+      {
+        "title": "Export audit trail",
+        "status": "ACCEPTED",
+        "issue_url": "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/103"
+      },
+      {
+        "title": "Export status report",
+        "status": "Shipped",
+        "issue_url": "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/104"
+      },
+      {
+        "title": "Mystery state stays visible",
+        "status": "UNRECOGNIZED",
+        "issue_url": "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/105"
+      }
+    ]
+  },
+  "issue_details": {
+    "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/101": {
+      "title": "Release notes",
+      "acceptance": "The blocked release is marked while its issue stays linked."
+    },
+    "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/102": {
+      "title": "Pipe | and line\nbreak",
+      "acceptance": "Cell text keeps its pipe and line break in one table row."
+    },
+    "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/103": {
+      "title": "Export audit trail",
+      "acceptance": "Accepted work remains visible in release order."
+    },
+    "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/104": {
+      "title": "Export status report",
+      "acceptance": "Configured status matching ignores case and surrounding spaces."
+    },
+    "https://github.com/fixture-owner/feature-status-matrix-acceptance-fixtures/issues/105": {
+      "title": "Mystery state stays visible",
+      "acceptance": "An unknown status stays visible without a blocker marker."
+    }
+  }
+}
