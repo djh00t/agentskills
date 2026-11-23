@@ -7,7 +7,7 @@ from urllib.parse import quote, urlsplit
 
 
 _DEFAULT_BLOCKER_STATUSES = frozenset({"blocked"})
-_TABLE_HEADER = "| Feature | Status | Issue |\n|---|---|---|"
+_TABLE_HEADER = "| Feature | Status | Issue |\n| --- | --- | --- |"
 
 
 def _parse_blocker_statuses(value: str | None) -> frozenset[str]:
