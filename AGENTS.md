@@ -1,8 +1,6 @@
 ## Read the following files before starting
 
-@~/.codex/AGENTS-RTK.md
-@~/.codex/AGENTS-CONTEXT-MODE.md
-@~/.agents/PRINCIPLES.md
+Outside contributors need only this file and the repo-local [PRINCIPLES.md](PRINCIPLES.md); no file outside this repository is required. Maintainer-group agents follow the additional rules noted under "Maintainer's agent projects" below.
 
 ## Operating principles
 
