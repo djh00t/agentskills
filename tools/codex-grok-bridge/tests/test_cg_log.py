@@ -72,6 +72,26 @@ class MessageLogTest(unittest.TestCase):
         with self.assertRaises(cg_log.LogError):
             self.log.transition(3, "failed")
 
+    def test_failed_row_cannot_be_reopened(self):
+        self.log.record(1, "r", "t")
+        self.log.transition(1, "failed")
+        for state in cg_log.TRANSITIONS:
+            with self.subTest(state=state), self.assertRaises(cg_log.LogError):
+                self.log.transition(1, state)
+
+    def test_invalid_legacy_encoding_and_oversized_integer_raise_log_error(self):
+        legacy = Path(self.tmp.name) / "last-seq"
+        for value in (b"\xff", b"9" * 5000):
+            legacy.write_bytes(value)
+            with self.subTest(size=len(value)), self.assertRaises(cg_log.LogError):
+                cg_log.MessageLog(self.path, legacy).cursor()
+            self.assertFalse(self.path.exists())
+
+    def test_oversized_stored_sequence_raises_log_error(self):
+        self.path.write_text("\t".join(cg_log.FIELDS) + "\n" + "9" * 5000 + "\tr\tt\t\t\treceived\t\t\n")
+        with self.assertRaises(cg_log.LogError):
+            self.log.cursor()
+
     def test_repeat_record_is_noop(self):
         self.log.record(9, "first", "one")
         original = self.path.read_bytes()
