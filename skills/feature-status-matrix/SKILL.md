@@ -155,6 +155,33 @@ cd ~/.agents/skills/feature-status-matrix
 PYTHONPATH=. python3 -m unittest discover -s tests -v
 ```
 
+## OpenBot adapter
+
+`tools/openbot_adapter.py` provides the synchronous, standard-library-only
+`handle_request(request, source, sink, *, blocker_statuses=None)` entry point.
+Use `{"mode": "full"}` to render every release or
+`{"mode": "release", "release": "<id>"}` to render one exact release. The
+source provides `list_releases()` and `list_items(release_id)`; the sink
+provides `reply(markdown)`. The adapter calls the sink once with the complete
+Markdown reply and returns that same string. It does not call a live API or
+install, enable, or execute a harness.
+
+The inline report starts with `# Feature Status Matrix`. Each selected release
+gets a `## <id> — <title>` heading and a table with `Feature`, `Status`, and
+`Issue` columns. Release and item order follows the source. Feature and status
+cell text escapes pipes and line breaks. The Issue cell links to the supplied
+canonical GitHub issue URL. The adapter uses this minimal layout because its
+source contract does not provide area, progress, or budget data; it does not
+invent those fields.
+
+`BLOCKED` is always a blocker. `blocker_statuses` may add names as a
+comma-separated string; names are trimmed and matched case-insensitively.
+Matching statuses receive a `⚠️` marker in the Status cell. Other status text
+is preserved verbatim and is not counted as a blocker, including unrecognized
+values. An invalid mode, missing or unknown release identifier, malformed
+blocker configuration, or invalid source record raises `ValueError` before a
+reply is sent.
+
 ## Harness notes / phase-2 gaps
 
 - **Codex**: installer registers the plugin in the personal local marketplace;
