@@ -135,6 +135,10 @@ replace the owner. Never run two writers on the same resource.
   approved it.
 - PRs are opened ready for review. No draft PRs.
 - A review comment is not an approval vote. Only the reviewer's approval counts.
+  Where the author and reviewer share one GitHub account, so a formal approval
+  is impossible, the approval is a PR comment from Peer Reviewer that states
+  `Verdict: APPROVE` and names the current head commit. It lapses when the head
+  changes.
 
 ## 7. Decision records
 
